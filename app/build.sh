@@ -18,6 +18,9 @@ fi
 if [ -f ../mre/hello/MyMREApp_app.vxp ]; then
     cp ../mre/hello/MyMREApp_app.vxp build/assets/luizapp.vxp
 fi
+if [ -f ../mre/hello/LuizFaceRes.vxp ]; then
+    cp ../mre/hello/LuizFaceRes.vxp build/assets/luizface3.vxp
+fi
 
 javac --release 11 -Xlint:-options -classpath "$AJ" -d build/classes \
     src/com/luiz/w26/*.java

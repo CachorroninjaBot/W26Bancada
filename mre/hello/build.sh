@@ -46,7 +46,16 @@ for f in src/*.c; do
   "$GCC" $SHARED -std=gnu89 -Wno-implicit-function-declaration -Wno-int-conversion -c "$f" -o "build/$(basename "${f%.c}").o"
 done
 "$GCC" -o "build/$APP.axf" build/*.o $LINK_LIB $LINK
+RES="${MRE_RES:-$SDK/resource.bin}"
 # sem -I: arm-none-eabi-objcopy ja sabe ler elf32-littlearm (o -I generico zerava EM_ARM)
-"$OBJCOPY" --add-section .vm_res=$SDK/resource.bin "build/$APP.axf" "build/$APP.vxp"
+"$OBJCOPY" --add-section .vm_res="$RES" "build/$APP.axf" "build/$APP.vxp"
 "$PY" $SDK/build.py "build/$APP.vxp" "$APP.vxp"
+# MRE_LAYOUT=0x4b4c: reposiciona .vm_res na posicao dos vxp oficiais
+if [ -n "${MRE_LAYOUT:-}" ]; then
+  "$PY" $SDK/layout.py "$APP.vxp" "$MRE_LAYOUT"
+fi
+if [ -n "${MRE_REFLOW:-}" ]; then
+  "$PY" $SDK/reflow.py "$APP.vxp" "$MRE_REFLOW"
+fi
+"$PY" $SDK/fixelf.py "$APP.vxp"
 ls -l "$APP.vxp"

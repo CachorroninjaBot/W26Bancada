@@ -19,48 +19,46 @@ with open("manifest.json", 'r') as config_file:
 watch_face = int(os.environ.get("MRE_FACE", 1 if config.get("watch_face") else 0))
 
 # Find the location of the resources in the AXF file by searching for bytes
-# I know this is definitely not the best way, but it will do for now
-res_offset = axf.find(bytes([0x41,0x70,0x70,0x4C,0x6F,0x67,0x6F,0x2E,0x69,0x6D,0x67,0x00,0x30,0x00,0x00,0x00,0xE0]))
+res_offset = axf.find(b"AppLogo.img\x00")
 if (res_offset == -1):
     raise RuntimeError("Resource offset not found")
 
 # ______________________________________________________________________________
 # 
 #  Fix absolute address offsets in the inserted resource file
-#  Based on https://github.com/XimikBoda/TinyMRESDK/blob/main/PackApp/main.cpp
+#  Official vxps keep .vm_res at 0x4b4c and store offsets absolute in the file;
+#  resource.bin do SDK guarda offsets relativos ao inicio do .vm_res.
 # ______________________________________________________________________________
 # 
-pos = res_offset
+RES_BASE = int(os.environ.get("MRE_RES_BASE", "0x4b4c"), 0)
 
-while True:
-    oldpos = pos
+def res_abs(value):
+    return res_offset + (value - RES_BASE if value >= RES_BASE else value)
+
+if os.environ.get("MRE_NOFIX") != "1":
+    pos = res_offset
+    table = None
+
     while axf[pos] != 0:
+        start = pos
+        while axf[pos] != 0:
+            pos += 1
+        name = axf[start:pos].decode('ascii', 'replace')
         pos += 1
-    pos += 1
+        insert_int32(pos, res_abs(int.from_bytes(axf[pos:pos+4], byteorder='little')))
+        if name == "mre-2.0":
+            table = int.from_bytes(axf[pos:pos+4], byteorder='little')
+        pos += 8
 
-    if axf[pos - 2] == 0:
-        break
-
-    offset = int.from_bytes(axf[pos:pos+4], byteorder='little')
-    insert_int32(pos, offset + res_offset)
-    pos += 8
-
-res2_offset = int.from_bytes(axf[pos:pos+4], byteorder='little')
-res2_offset += res_offset
-insert_int32(pos, res2_offset)
-
-pos = res2_offset
-
-while True:
-    id = int.from_bytes(axf[pos:pos+4], byteorder='little')
-    pos += 4
-
-    offset = int.from_bytes(axf[pos:pos+4], byteorder='little')
-    insert_int32(pos, offset + res_offset)
-    pos += 4
-
-    if id == 0xFFFFFFFF:
-        break
+    if table is not None:
+        pos = table
+        while True:
+            id = int.from_bytes(axf[pos:pos+4], byteorder='little')
+            pos += 4
+            if id == 0xFFFFFFFF:
+                break
+            insert_int32(pos, res_abs(int.from_bytes(axf[pos:pos+4], byteorder='little')))
+            pos += 4
 
 # ______________________________________________________________________________
 #
@@ -156,7 +154,8 @@ add_int_tag(0x02, 0xFFFFFFFF)  # app ID
 add_int_tag(0x03, 1)  # index of key ID, whatever that is
 add_int_array_tag(0x06, [0, 0, 0, 0, 0, 0])  # license issue date (unused)
 add_int_array_tag(0x07, [0, 0, 0, 0, 0, 0])  # license expiry date
-add_int_tag(0x10, (240 << 16) | 240)  # resolucao 240x240 (2 x int16)
+res = config.get("resolution", [240, 240])
+add_int_tag(0x10, (res[0] << 16) | res[1])  # resolucao (2 x int16)
 add_int_tag(0x11, 0x09C40000)  # engine version (00 00 C4 09 no formato oficial)
 add_int_tag(0x16, 1)  # input mode 1
 add_int_tag(0x1c, 0)  # doesn't support rotation

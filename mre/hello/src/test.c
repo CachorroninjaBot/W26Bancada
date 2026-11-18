@@ -1,11 +1,13 @@
 
 #include "vmsys.h"
 #include "vmgraph.h"
-#include "vmstdlib.h"
+#include "vmtimer.h"
+#include "vmmm.h"
 
 VMINT layer_hdl[1];
 static void handle_sysevt(VMINT message, VMINT param);
 static void draw_red(void);
+static void tick(VMINT tid);
 
 static void draw_red(void)
 {
@@ -19,6 +21,13 @@ static void draw_red(void)
 	vm_graphic_setcolor(&c);
 	vm_graphic_fill_rect_ex(layer_hdl[0], 0, vm_graphic_get_screen_height() / 2 - 10, vm_graphic_get_screen_width(), 20);
 	vm_graphic_flush_layer(layer_hdl, 1);
+}
+
+static void tick(VMINT tid)
+{
+	(void)tid;
+	vm_vibrator_once();
+	draw_red();
 }
 
 static void handle_sysevt(VMINT message, VMINT param)
@@ -49,5 +58,7 @@ static void handle_sysevt(VMINT message, VMINT param)
 void vm_main(void)
 {
 	layer_hdl[0] = -1;
+	vm_vibrator_once();
 	vm_reg_sysevt_callback(handle_sysevt);
+	vm_create_timer(3000, tick);
 }

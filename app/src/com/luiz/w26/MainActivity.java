@@ -127,8 +127,24 @@ public class MainActivity extends Activity implements W26.Listener {
             }
         }));
 
+        ctrl.addView(button("Instalar LuizFace RES (fundo oficial)", v -> {
+            try {
+                W26.get().mreeInstall("luizface3.vxp", asset("luizface3.vxp"));
+            } catch (Exception e) {
+                log("asset: " + e.getMessage());
+            }
+        }));
+
+        ctrl.addView(button("Instalar face REF (oficial)", v -> {
+            try {
+                W26.get().mreeInstall("refface.vxp", asset("ref.vxp"));
+            } catch (Exception e) {
+                log("asset: " + e.getMessage());
+            }
+        }));
+
         ctrl.addView(button("Limpar testes MRE (libera espaco)", v -> {
-            for (String n : new String[]{"qoder.vxp", "qoder2.vxp", "qodertest.vxp", "face2.vxp", "luizface.vxp", "luizapp.vxp"})
+            for (String n : new String[]{"qoder.vxp", "qoder2.vxp", "qodertest.vxp", "face2.vxp", "luizface.vxp", "luizface2.vxp", "luizface3.vxp", "luizapp.vxp", "refface.vxp"})
                 W26.get().mreeUninstall(n);
             log("limpeza: uninstall pedido para os vxp de teste");
         }));

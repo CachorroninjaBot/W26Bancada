@@ -13,5 +13,9 @@
   "run_in_background": 0,
   "auto_start": 0,
   "watch_face": 1,
-  "compiler": 0
+  "compiler": 0,
+  "resolution": [
+    176,
+    220
+  ]
 }
