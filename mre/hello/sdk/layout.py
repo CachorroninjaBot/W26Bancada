@@ -32,5 +32,11 @@ struct.pack_into('<I', d, 32, shoff + delta)
 
 d[cur:cur] = b'\0' * delta
 
+# tags + trailer shifted by delta along with everything after .vm_res
+if len(d) >= 12 and d[-8:] == b'\0' * 8:
+    tp = struct.unpack_from('<I', d, len(d) - 12)[0]
+    if 0 < tp <= len(d) - 12:
+        struct.pack_into('<I', d, len(d) - 12, tp + delta)
+
 open(fn, 'wb').write(bytes(d))
 print('layout: .vm_res %#x -> %#x (padding %d)' % (cur, target, delta))

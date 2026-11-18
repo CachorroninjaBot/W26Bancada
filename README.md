@@ -101,16 +101,16 @@ MRE_EXEC=1 MRE_RES=sdk/resource_long.bin MRE_NOFIX=1 MRE_REFLOW=0x4b4c \
    apareceu com fundo, mas **sem ponteiros**.
 3. Nosso VXP **17 KB (recursos mínimos) instala** com o layout ELF novo → layout
    ELF/tags ok para o instalador.
-4. Nosso VXP com o `.vm_res` oficial de 36 KB foi **recusado** (-1000) duas vezes:
-   - uma com `.vm_res` em `0x27a8` (offsets realocados);
-   - outra com `.vm_res` em `0x4b4c` (offsets absolutos originais, 60 KB);
-   - e mais uma com o reflow completo (56,4 KB, quase idêntico ao oficial).
-   Hipótese atual: o instalador recusa **nome já existente** (`luizface2.vxp` já
-   estava instalado desde o teste de 17 KB) — o erro -1000 apareceu depois do
-   teste que instala com sucesso, então pode não ser conteúdo.
+4. Nosso VXP com o `.vm_res` oficial de 36 KB foi **recusado** (-1000) várias vezes.
+   **Causa raiz encontrada (18/11):** o `sdk/reflow.py` reconstruía o ELF truncando
+   o arquivo no fim dos section headers e **descartava o bloco de tags** que o
+   `build.py` appended depois do ELF. Sem a tag `0x04` (nome) o instalador recusa.
+   O `layout.py` também quebrava o trailer (deslocava as tags sem atualizar
+   `tags_pos`). Ambos corrigidos: agora preservam as tags e reescrevem o trailer.
+   `LuizFaceRes.vxp` rebuildado = estruturalmente idêntico ao oficial (`.vm_res` em
+   `0x4b4c`, mesmos offsets de recurso, tags completas), só muda o código (nosso).
 5. Após as tentativas frustradas, **os dois mostradores custom (Longines e o nosso)
-   passaram a renderizar preto** — o estado da face foi corrompido de alguma forma.
-   Falta: reiniciar o relógio e ver se o Longines volta (fundo aparece/ponteiros não).
+   passaram a renderizar preto** — estado da face corrompido; reiniciar o relógio.
 
 ## 6. Conclusões atuais sobre modo mostrador
 
@@ -123,29 +123,61 @@ MRE_EXEC=1 MRE_RES=sdk/resource_long.bin MRE_NOFIX=1 MRE_REFLOW=0x4b4c \
 
 ## 7. Estado atual (18/11/2026, ~04h)
 
-- Relógio: mostradores custom instalados (`refface.vxp` Longines, `luizface2.vxp`
-  nosso 17 KB) **aparecem pretos** agora.
-- `luizface2.vxp` (56,4 KB, recursos oficiais, reflow) **não instalou** (-1000);
-  a próxima tentativa deve usar **nome novo** (`luizface3.vxp`) e, de preferência,
-  depois de reiniciar o relógio.
-- Celular: APK da bancada instalado; botões atuais: "Instalar LuizFace RES",
-  "Instalar face REF (oficial)", "Limpar testes MRE".
+- `reflow.py`/`layout.py` corrigidos (preservam tags). `LuizFaceRes.vxp` (57.315 B)
+  rebuildado e válido: `.vm_res` em `0x4b4c`, offsets idênticos ao oficial, tags
+  completas (nome `LuizFace`, `0x34=1`, 176x220). Código = `src/test.c` (vibração
+  + tela vermelha) — de propósito, para o experimento decisivo abaixo.
+- `app/assets/face.vxp` estava quebrado (sem tags, `.vm_res` desalinhado em
+  `0x23a4`); substituído pelo mostrador mínimo válido (`MyMREApp.vxp`).
+- APK rebuildado e instalado no celular (`adb install -r`), assets: `face.vxp`,
+  `luizface.vxp`, `luizapp.vxp`, `luizface3.vxp` (= LuizFaceRes), `ref.vxp`.
+- Longines oficial (`refface.vxp`) instala e mostra **fundo, sem ponteiros**.
 
-## 8. Próximos passos
+## 8. Experimento decisivo (próximo teste no relógio)
 
-1. Reiniciar o relógio (segurar botão) e conferir se o Longines volta a renderizar
-   o fundo; reinstalar `refface.vxp` se necessário.
-2. Instalar o reflow (`luizface3.vxp`) com nome inédito; observar fundo e vibração
-   (vibração = nosso código executa em modo face).
-3. Se fundo aparecer: substituir imagens VRE3 (fundo/ponteiros) por arte própria
-   (PACKRES/ResEditor do SDK MTK em `tmp/mresdk/tools` na cópia antiga).
-4. Restaurar o mostrador analógico completo (`/tmp/luizface_backup.c`) quando houver
-   renderização; depois auto-start (tag 0x32) e iteração de design.
-5. Roadmap maior: mapear APIs do relógio (arquivos/sensores/LBS), interface própria,
-   sincronização celular↔relógio sobre SPP, "finder" (última localização + data,
-   alarme/vibração no relógio) e atualização de VXP pelo nosso app.
+`LuizFaceRes` tem os recursos oficiais (fundo Longines) + **nosso código** que
+vibra no `vm_main` e a cada 3 s, e pinta a tela de vermelho. Instalar e selecionar:
 
-## 9. Estrutura
+1. Reiniciar o relógio (segurar botão) para limpar o estado corrompido.
+2. No relógio, voltar para um mostrador **nativo** (nenhum custom ativo).
+3. Bancada: Conectar SPP → "Limpar testes MRE" → "Instalar LuizFace RES".
+4. Selecionar o LuizFace no relógio e observar:
+   - **Vibrou / tela vermelha** → nosso código RODA em modo face. Aí o problema
+     dos ponteiros no Longines é renderização/recurso, não execução. Caminho:
+     arte própria no `.vm_res` + código de ponteiros nosso.
+   - **Só o fundo Longines, sem vibração** → firmware desenha o fundo do
+     `.vm_res` mas NÃO executa o código em modo face. Caminho: empacotar tudo
+     (fundo + ponteiros) como imagens VRE3 e depender do render nativo.
+   - **Preto** → nem fundo nem código; investigar loader/permissoes.
+
+## 9. Capacidades do relógio (mapa GATT confirmado no dumpsys)
+
+Serviços que o W26 expõe: `1800/1801` (GAP/GATT), `1802` **Immediate Alert**
+(`2A06` = find me / alerta), `1803` (link loss), `1804` (tx power), `18A0` (MTK
+3.0: `2AA0` notify, `2AA1` write), `18E0` (TJD: `2E00/2E01`).
+
+- **NÃO tem `30A0`** (serviço de dial push do app oficial M Active) → o controle
+  de mostrador nativo via `DialInfoSet`/`DialSelect` NÃO existe neste firmware.
+  Mostradores aqui são apenas VXP via `mre_installer`.
+- **NÃO tem GPS** nem serviço de localização → "finder" usa o GPS do **celular**:
+  o app grava a última posição/conexão e mostra num mapa; ao perder o relógio,
+  dispara o alerta (`1802/2A06` ou TJD `X1,PRSET,FindDevice,1`) para vibrar.
+- App oficial decompilado (`tmp/jadx-out` na cópia antiga): `VxpInstallController`
+  tem cmd `-3` (push only), `-4` (uninstall all), `8` (set permission); a tag
+  `0x35` no VXP declara a máscara de permissões exigida (lida por
+  `MREProperties.getPermission`). Nosso `build.py` ainda não emite `0x35`.
+
+## 10. Próximos passos
+
+1. Rodar o experimento decisivo (§8) e registrar o resultado.
+2. Se código roda: restaurar o mostrador analógico (`/tmp/luizface_backup.c`),
+   depois arte própria no `.vm_res` (PACKRES/ResEditor em `tmp/mresdk/tools`).
+3. Emitir tag `0x35` + instalar com máscara de permissões (cmd 8) como o oficial.
+4. Roadmap maior: apps MRE próprios, sync celular↔relógio sobre SPP, finder
+   (última localização do celular + alerta no relógio), UI própria e canal de
+   atualização de VXP pelo nosso app.
+
+## 11. Estrutura
 
 ```
 app/                app Android da bancada (W26.java, Mtk.java, MainActivity.java)

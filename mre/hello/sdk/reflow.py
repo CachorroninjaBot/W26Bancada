@@ -5,6 +5,14 @@ import sys, struct
 fn, target = sys.argv[1], int(sys.argv[2], 0)
 d = bytes(open(fn, 'rb').read())
 
+# build.py appends tags + trailer after the ELF; reflow rebuilds the ELF from
+# scratch, so carry the tag block over or the installer loses the name/face tags.
+tags_blob = b''
+if len(d) >= 12 and d[-8:] == b'\0' * 8:
+    tp = struct.unpack_from('<I', d, len(d) - 12)[0]
+    if 0 < tp <= len(d) - 12:
+        tags_blob = d[tp:len(d) - 12]
+
 ident, etype, mach, ver, entry, phoff, shoff, eflags, ehsize, phentsize, phnum, shentsize, shnum, shstrndx = \
     struct.unpack_from('<16sHHIIIIIHHHHHH', d, 0)
 
@@ -66,6 +74,11 @@ struct.pack_into('<H', out, 44, 1)        # e_phnum
 struct.pack_into('<H', out, 48, len(new_sh))
 struct.pack_into('<H', out, 50, 5)        # e_shstrndx = .shstrtab
 
+elf_len = len(out)
+if tags_blob:
+    out += tags_blob
+    out += struct.pack('<III', elf_len, 0, 0)
+
 open(fn, 'wb').write(bytes(out))
-print('reflow: RO %#x RW %#x RES %#x shstr %#x ph %#x sh %#x len %#x' %
-      (ro_off, rw_off, res_off, shstr_off, ph_off, sh_off, len(out)))
+print('reflow: RO %#x RW %#x RES %#x shstr %#x ph %#x sh %#x len %#x tags %d' %
+      (ro_off, rw_off, res_off, shstr_off, ph_off, sh_off, len(out), len(tags_blob)))
