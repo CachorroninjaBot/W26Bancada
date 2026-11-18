@@ -56,14 +56,19 @@ MTK e `L4Comm.BrltWallpaperPush` (caminho de wallpaper do app oficial).
 - `app/src/com/luiz/w26/Prefs.java` — preferencias de sync (hora auto, notificacoes, ultima sync).
 - `app/src/com/luiz/w26/Weather.java` — clima Open-Meteo (sem chave) -> `X0,WEATHER`.
 - `app/src/com/luiz/w26/NotiSvc.java` — listener que encaminha notificacoes (respeita o toggle).
-- `app/src/com/luiz/w26/MainActivity.java` — UI em secoes (status, conexao, sync, finder, MRE, console, log).
+- `app/src/com/luiz/w26/MainActivity.java` — UI estilo Da Fit: dashboard + barra de 5 abas (Inicio, Dispositivo, Mostradores, Ajustes, Console).
+- `app/src/com/luiz/w26/Icon.java` — icones de linha desenhados em Canvas (tingiveis por estado), sem recursos XML.
+- `app/src/com/luiz/w26/Ring.java` — anel de progresso da bateria do relogio (trilho + arco).
 - `app/src/com/luiz/w26/FaceBuilder.java` — criador de mostrador DIGITAL (fundos pre-montados A/B do ronman, Configtbl oficial preservado).
 - `app/assets/*.vxp` — mostradores embarcados (face, luizface, luizapp, luizface3=RES,
   ref=Longines). `app/assets/faces/` — template digital `ronman.vxp` + variantes
   pre-montadas `ronman_a.vxp`/`ronman_b.vxp` (fundos A/B, geradas por `sdk/mkdigital.py`).
 
-Features (18/11): UI escura em cards com header de estado + card de status dos dois
-dispositivos; **finder** (GPS do celular ao conectar, mapa `geo:`, "Fazer vibrar" =
+Features (18/11): **interface redesenhada estilo Da Fit** — dashboard com hero card
+(gradient azul + anel de bateria do relogio), grade de acoes rapidas (sincronizar,
+achar relogio/celular, clima), tiles de estatisticas e barra inferior de 5 abas
+(Inicio/Dispositivo/Mostradores/Ajustes/Console); toda a UI e programatica (Canvas
+`Icon`/`Ring`, sem R/XML). Cards escuros com header de estado global; **finder** (GPS do celular ao conectar, mapa `geo:`, "Fazer vibrar" =
 `1802/2A06` + TJD FindDevice); **sync automatico** (hora ao conectar, bateria do
 relogio parseada de `X0,GET,7,<n>#` com remontagem de frames `#`, notificacoes com
 toggle + status do listener, refresh a cada 30 s); **encontrar celular** (watch manda

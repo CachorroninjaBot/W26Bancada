@@ -9,8 +9,6 @@ import android.content.Intent;
 import android.content.IntentFilter;
 import android.content.pm.PackageManager;
 import android.content.res.ColorStateList;
-import android.graphics.Bitmap;
-import android.graphics.BitmapFactory;
 import android.graphics.Color;
 import android.graphics.Typeface;
 import android.graphics.drawable.GradientDrawable;
@@ -26,12 +24,14 @@ import android.os.Looper;
 import android.os.VibrationEffect;
 import android.os.Vibrator;
 import android.provider.Settings;
+import android.view.Gravity;
 import android.view.KeyEvent;
 import android.view.View;
 import android.view.ViewGroup;
 import android.widget.ArrayAdapter;
 import android.widget.Button;
 import android.widget.EditText;
+import android.widget.FrameLayout;
 import android.widget.ImageView;
 import android.widget.LinearLayout;
 import android.widget.ScrollView;
@@ -39,24 +39,29 @@ import android.widget.Spinner;
 import android.widget.Switch;
 import android.widget.TextView;
 
-/** W26: bancada bonita + sincronizacao celular<->relogio (hora, notificacoes, bateria, finder). */
+/** W26 Bancada — companion do relogio estilo Da Fit: dashboard + abas (dispositivo,
+ *  mostradores, ajustes, console) e sincronizacao celular<->relogio. */
 public class MainActivity extends Activity implements W26.Listener {
     private static final String DEFAULT_MAC = "C2:BA:45:15:C8:F9";
     private static final String DEFAULT_CLASSIC = "06:87:E6:0C:62:61";
     private static final int REQ_VXP = 7;
 
-    private static final int BG = 0xFF0B0F14;
-    private static final int CARD = 0xFF131A23;
-    private static final int STROKE = 0xFF223041;
-    private static final int FIELD = 0xFF0E141B;
-    private static final int GHOST = 0xFF1C2733;
-    private static final int ACCENT = 0xFF38BDF8;
-    private static final int GREEN = 0xFF34D399;
-    private static final int WARN = 0xFFF87171;
-    private static final int AMBER = 0xFFFBBF24;
-    private static final int TEXT = 0xFFE6EDF3;
-    private static final int MUTED = 0xFF8B98A9;
-    private static final int DARK = 0xFF0B0F14;
+    private static final int BG = 0xFF080C12;
+    private static final int CARD = 0xFF121A24;
+    private static final int CARD2 = 0xFF0E151E;
+    private static final int STROKE = 0xFF1E2A38;
+    private static final int FIELD = 0xFF0B1119;
+    private static final int GHOST = 0xFF1A2430;
+    private static final int ACCENT = 0xFF3D7EFF;
+    private static final int ACCENT2 = 0xFF1B2C50;
+    private static final int GREEN = 0xFF2DD4A7;
+    private static final int WARN = 0xFFF0616D;
+    private static final int AMBER = 0xFFF5B942;
+    private static final int TEXT = 0xFFEDF2F8;
+    private static final int MUTED = 0xFF7E8CA0;
+    private static final int DARK = 0xFF080C12;
+
+    private static final int TAB_HOME = 0, TAB_DEVICE = 1, TAB_DIAL = 2, TAB_SETTINGS = 3, TAB_CONSOLE = 4;
 
     private TextView stateView;
     private TextView watchStateView;
@@ -78,6 +83,14 @@ public class MainActivity extends Activity implements W26.Listener {
     private TextView faceInfo;
     private Switch autoSyncSwitch;
     private Switch notifSwitch;
+    private Ring watchRing;
+
+    private FrameLayout pages;
+    private final View[] pageViews = new View[5];
+    private final Icon[] tabIcons = new Icon[5];
+    private final TextView[] tabLabels = new TextView[5];
+    private final LinearLayout[] tabButtons = new LinearLayout[5];
+    private int currentTab = -1;
 
     private final Handler ui = new Handler(Looper.getMainLooper());
     private Ringtone alertRing;
@@ -118,55 +131,247 @@ public class MainActivity extends Activity implements W26.Listener {
         ui.removeCallbacks(periodic);
     }
 
+    // ---- estrutura principal: header + paginas + barra de abas ----
+
     private View buildUi() {
         LinearLayout root = new LinearLayout(this);
         root.setOrientation(LinearLayout.VERTICAL);
         root.setBackgroundColor(BG);
-        root.setPadding(dp(16), dp(14), dp(16), dp(16));
 
-        // ---- Header ----
+        root.addView(buildHeader());
+
+        pages = new FrameLayout(this);
+        pageViews[TAB_HOME] = pageHome();
+        pageViews[TAB_DEVICE] = pageDevice();
+        pageViews[TAB_DIAL] = pageDial();
+        pageViews[TAB_SETTINGS] = pageSettings();
+        pageViews[TAB_CONSOLE] = pageConsole();
+        for (View v : pageViews) {
+            v.setVisibility(View.GONE);
+            pages.addView(v, new FrameLayout.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
+        }
+        root.addView(pages, new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f));
+
+        root.addView(buildTabBar());
+        selectTab(TAB_HOME);
+        return root;
+    }
+
+    private View buildHeader() {
         LinearLayout header = new LinearLayout(this);
         header.setOrientation(LinearLayout.HORIZONTAL);
-        header.setGravity(android.view.Gravity.CENTER_VERTICAL);
+        header.setGravity(Gravity.CENTER_VERTICAL);
+        header.setPadding(dp(18), dp(14), dp(16), dp(10));
+
+        ImageView logo = icon(Icon.WATCH, ACCENT, 30);
+        LinearLayout.LayoutParams llp = new LinearLayout.LayoutParams(dp(30), dp(30));
+        llp.rightMargin = dp(10);
+        header.addView(logo, llp);
+
         LinearLayout titles = new LinearLayout(this);
         titles.setOrientation(LinearLayout.VERTICAL);
         TextView title = new TextView(this);
-        title.setText("W26");
-        title.setTextSize(30);
+        title.setText("W26 Bancada");
+        title.setTextSize(19);
         title.setTextColor(TEXT);
         title.setTypeface(Typeface.DEFAULT_BOLD);
         titles.addView(title);
         TextView sub = new TextView(this);
-        sub.setText("bancada · sync");
-        sub.setTextSize(12);
+        sub.setText("Watch 6 · companion");
+        sub.setTextSize(11);
         sub.setTextColor(MUTED);
         titles.addView(sub);
         header.addView(titles, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
-        stateView = chip("desconectado", GHOST, TEXT);
+
+        stateView = chip("desconectado", GHOST, MUTED);
         header.addView(stateView);
+        return header;
+    }
+
+    private View buildTabBar() {
+        LinearLayout bar = new LinearLayout(this);
+        bar.setOrientation(LinearLayout.HORIZONTAL);
+        bar.setBackgroundColor(CARD2);
+        bar.setPadding(dp(6), dp(7), dp(6), dp(9));
+        GradientDrawable top = new GradientDrawable();
+        top.setColor(CARD2);
+        bar.setBackground(top);
+        // linha superior sutil
+        View divider = new View(this);
+        divider.setBackgroundColor(STROKE);
+
+        String[] labels = {"Início", "Dispositivo", "Mostradores", "Ajustes", "Console"};
+        int[] icons = {Icon.HOME, Icon.BT, Icon.DIAL, Icon.SLIDERS, Icon.TERMINAL};
+        for (int i = 0; i < 5; i++) {
+            final int idx = i;
+            LinearLayout tab = new LinearLayout(this);
+            tab.setOrientation(LinearLayout.VERTICAL);
+            tab.setGravity(Gravity.CENTER);
+            tab.setPadding(dp(2), dp(7), dp(2), dp(6));
+            tab.setOnClickListener(v -> selectTab(idx));
+            Icon ic = new Icon(icons[i], MUTED, getResources().getDisplayMetrics().density);
+            ImageView iv = new ImageView(this);
+            iv.setImageDrawable(ic);
+            tab.addView(iv, new LinearLayout.LayoutParams(dp(23), dp(23)));
+            TextView lab = new TextView(this);
+            lab.setText(labels[i]);
+            lab.setTextSize(10);
+            lab.setTextColor(MUTED);
+            lab.setTypeface(Typeface.DEFAULT_BOLD);
+            LinearLayout.LayoutParams tlp = new LinearLayout.LayoutParams(
+                    ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+            tlp.topMargin = dp(3);
+            tab.addView(lab, tlp);
+            tabIcons[i] = ic;
+            tabLabels[i] = lab;
+            tabButtons[i] = tab;
+            bar.addView(tab, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
+        }
+        LinearLayout wrap = new LinearLayout(this);
+        wrap.setOrientation(LinearLayout.VERTICAL);
+        wrap.addView(divider, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(1)));
+        wrap.addView(bar);
+        return wrap;
+    }
+
+    private void selectTab(int idx) {
+        if (idx == currentTab) return;
+        currentTab = idx;
+        for (int i = 0; i < 5; i++) {
+            pageViews[i].setVisibility(i == idx ? View.VISIBLE : View.GONE);
+            boolean sel = i == idx;
+            tabIcons[i].setColor(sel ? ACCENT : MUTED);
+            tabLabels[i].setTextColor(sel ? ACCENT : MUTED);
+            GradientDrawable g = new GradientDrawable();
+            g.setColor(sel ? 0x1A3D7EFF : Color.TRANSPARENT);
+            g.setCornerRadius(dp(14));
+            tabButtons[i].setBackground(g);
+        }
+    }
+
+    // ---- pagina: INICIO (dashboard) ----
+
+    private View pageHome() {
+        LinearLayout c = pageContainer();
+
+        // Hero card com gradiente + anel de bateria
+        LinearLayout hero = new LinearLayout(this);
+        hero.setOrientation(LinearLayout.HORIZONTAL);
+        hero.setGravity(Gravity.CENTER_VERTICAL);
+        GradientDrawable hg = new GradientDrawable(GradientDrawable.Orientation.TL_BR,
+                new int[]{0xFF3D7EFF, 0xFF16233F});
+        hg.setCornerRadius(dp(22));
+        hero.setBackground(hg);
+        hero.setPadding(dp(20), dp(20), dp(20), dp(20));
         LinearLayout.LayoutParams hlp = new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
         hlp.bottomMargin = dp(14);
-        root.addView(header, hlp);
+        hero.setLayoutParams(hlp);
 
-        LinearLayout ctrl = new LinearLayout(this);
-        ctrl.setOrientation(LinearLayout.VERTICAL);
+        LinearLayout hinfo = new LinearLayout(this);
+        hinfo.setOrientation(LinearLayout.VERTICAL);
+        TextView hname = new TextView(this);
+        hname.setText("Watch 6");
+        hname.setTextSize(24);
+        hname.setTextColor(0xFFFFFFFF);
+        hname.setTypeface(Typeface.DEFAULT_BOLD);
+        hinfo.addView(hname);
+        TextView hmodel = new TextView(this);
+        hmodel.setText("W26 · MRE 2.0 · 176×220");
+        hmodel.setTextSize(11);
+        hmodel.setTextColor(0xCCFFFFFF);
+        LinearLayout.LayoutParams mlp = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        mlp.bottomMargin = dp(10);
+        hinfo.addView(hmodel, mlp);
+        watchStateView = chip("desconectado", 0x33FFFFFF, 0xFFFFFFFF);
+        hinfo.addView(watchStateView);
+        hero.addView(hinfo, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
 
-        // ---- Status ----
-        LinearLayout status = card();
-        status.addView(sectionTitle("Status"));
-        watchStateView = statValue("—");
-        watchBattView = statValue("—");
+        FrameLayout ringWrap = new FrameLayout(this);
+        watchRing = new Ring(0x33FFFFFF, 0xFFFFFFFF, getResources().getDisplayMetrics().density);
+        ringWrap.setBackground(watchRing);
+        watchBattView = new TextView(this);
+        watchBattView.setText("—");
+        watchBattView.setTextSize(21);
+        watchBattView.setTextColor(0xFFFFFFFF);
+        watchBattView.setTypeface(Typeface.DEFAULT_BOLD);
+        watchBattView.setGravity(Gravity.CENTER);
+        ringWrap.addView(watchBattView, new FrameLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
+        TextView ringLab = new TextView(this);
+        ringLab.setText("bateria");
+        ringLab.setTextSize(9);
+        ringLab.setTextColor(0xCCFFFFFF);
+        ringLab.setGravity(Gravity.CENTER);
+        FrameLayout.LayoutParams rllp = new FrameLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        rllp.gravity = Gravity.BOTTOM | Gravity.CENTER_HORIZONTAL;
+        rllp.bottomMargin = dp(14);
+        ringWrap.addView(ringLab, rllp);
+        hero.addView(ringWrap, new LinearLayout.LayoutParams(dp(94), dp(94)));
+        c.addView(hero);
+
+        // Acoes rapidas (grade 2x2)
+        c.addView(sectionTitle("Ações rápidas"));
+        c.addView(row(
+                quickTile(Icon.SYNC, "Sincronizar", v -> {
+                    W26.get().syncTime();
+                    W26.get().battery();
+                    Prefs.markSync(this);
+                    refreshStatus();
+                    log("sync: hora + bateria pedidos");
+                }),
+                quickTile(Icon.PIN, "Achar relógio", v -> W26.get().alertWatch(2))));
+        c.addView(row(
+                quickTile(Icon.BELL, "Achar celular", v -> alertPhone()),
+                quickTile(Icon.MAP, "Enviar clima", v -> Weather.fetchAndPush(this))));
+
+        // Estatisticas
+        c.addView(sectionTitle("Visão geral"));
         phoneBattView = statValue("—");
-        gpsView = statValue("—");
         lastSyncView = statValue("—");
+        gpsView = statValue("—");
         notifView = statValue("—");
-        status.addView(statRow(stat("Relógio", watchStateView), stat("Bateria relógio", watchBattView)));
-        status.addView(statRow(stat("Bateria celular", phoneBattView), stat("GPS", gpsView)));
-        status.addView(statRow(stat("Última sync", lastSyncView), stat("Notificações", notifView)));
-        ctrl.addView(status);
+        c.addView(row(statTile("Bateria celular", phoneBattView), statTile("Última sync", lastSyncView)));
+        c.addView(row(statTile("GPS", gpsView), statTile("Notificações", notifView)));
 
-        // ---- Conexao ----
+        // Atalho mostrador
+        LinearLayout promo = card();
+        promo.setOrientation(LinearLayout.HORIZONTAL);
+        promo.setGravity(Gravity.CENTER_VERTICAL);
+        ImageView pi = icon(Icon.DIAL, ACCENT, 30);
+        LinearLayout.LayoutParams pilp = new LinearLayout.LayoutParams(dp(30), dp(30));
+        pilp.rightMargin = dp(14);
+        promo.addView(pi, pilp);
+        LinearLayout pt = new LinearLayout(this);
+        pt.setOrientation(LinearLayout.VERTICAL);
+        TextView pt1 = new TextView(this);
+        pt1.setText("Mostrador digital");
+        pt1.setTextSize(15);
+        pt1.setTextColor(TEXT);
+        pt1.setTypeface(Typeface.DEFAULT_BOLD);
+        pt.addView(pt1);
+        TextView pt2 = new TextView(this);
+        pt2.setText("Fundos prontos + estatísticas nativas");
+        pt2.setTextSize(11);
+        pt2.setTextColor(MUTED);
+        pt.addView(pt2);
+        promo.addView(pt, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
+        promo.addView(icon(Icon.CHEVRON, MUTED, 20), new LinearLayout.LayoutParams(dp(20), dp(20)));
+        promo.setOnClickListener(v -> selectTab(TAB_DIAL));
+        c.addView(promo);
+
+        return scroll(c);
+    }
+
+    // ---- pagina: DISPOSITIVO (conexao) ----
+
+    private View pageDevice() {
+        LinearLayout c = pageContainer();
+
         LinearLayout conn = card();
         conn.addView(sectionTitle("Conexão"));
         macView = field(DEFAULT_MAC);
@@ -177,19 +382,108 @@ public class MainActivity extends Activity implements W26.Listener {
                 primaryBtn("Conectar BLE", v -> W26.get().connect(this, macView.getText().toString().trim())),
                 primaryBtn("Conectar SPP", v -> W26.get().connectSpp(this, classicView.getText().toString().trim()))));
         conn.addView(row(
-                ghostBtn("Desconectar", v -> W26.get().disconnect()),
-                ghostBtn("SPP off", v -> W26.get().disconnectSpp())));
-        ctrl.addView(conn);
+                ghostBtn("Desconectar BLE", v -> W26.get().disconnect()),
+                ghostBtn("Desconectar SPP", v -> W26.get().disconnectSpp())));
+        c.addView(conn);
 
-        // ---- Sync ----
+        LinearLayout info = card();
+        info.addView(sectionTitle("Sobre o dispositivo"));
+        info.addView(infoRow("Modelo", "Watch 6 / W26 (clone MTK)"));
+        info.addView(infoRow("Firmware", "W26_B_BL6133_201128_1"));
+        info.addView(infoRow("Tela", "176 × 220"));
+        info.addView(infoRow("Plataforma", "MRE 2.0"));
+        info.addView(infoRow("BLE MAC", DEFAULT_MAC));
+        info.addView(infoRow("SPP MAC", DEFAULT_CLASSIC));
+        c.addView(info);
+
+        LinearLayout tip = card();
+        tip.addView(sectionTitle("Como conectar"));
+        TextView t = new TextView(this);
+        t.setText("1. Pareie o relógio no Bluetooth do celular.\n"
+                + "2. Toque em “Conectar BLE” para notificações, hora, bateria e finder.\n"
+                + "3. Toque em “Conectar SPP” para instalar mostradores/apps (MREE).\n"
+                + "Os dois canais podem ficar ativos ao mesmo tempo.");
+        t.setTextSize(12);
+        t.setTextColor(MUTED);
+        t.setLineSpacing(dp(3), 1f);
+        tip.addView(t);
+        c.addView(tip);
+
+        return scroll(c);
+    }
+
+    // ---- pagina: MOSTRADORES ----
+
+    private View pageDial() {
+        LinearLayout c = pageContainer();
+
+        LinearLayout face = card();
+        face.addView(sectionTitle("Criar mostrador digital"));
+        facePreset = new Spinner(this);
+        String[] names = new String[FaceBuilder.PRESETS.length];
+        for (int i = 0; i < names.length; i++) names[i] = FaceBuilder.PRESETS[i].name;
+        ArrayAdapter<String> pa = new ArrayAdapter<>(this, android.R.layout.simple_spinner_item, names);
+        pa.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item);
+        facePreset.setAdapter(pa);
+        face.addView(labeled("Fundo", facePreset));
+        faceInfo = new TextView(this);
+        faceInfo.setText("Digital com horas + estatísticas (passos/HR/data) e atalhos de toque "
+                + "(música/HR) nativos do relógio. Os dois fundos já vêm no template; o relógio "
+                + "alterna entre eles pelo toque.");
+        faceInfo.setTextSize(12);
+        faceInfo.setTextColor(MUTED);
+        faceInfo.setLineSpacing(dp(2), 1f);
+        faceInfo.setPadding(0, dp(6), 0, dp(4));
+        face.addView(faceInfo);
+        face.addView(primaryBtn("Gerar e instalar no relógio", v -> installFace()));
+        c.addView(face);
+
+        LinearLayout mre = card();
+        mre.addView(sectionTitle("Mostradores & apps (MRE / SPP)"));
+        mre.addView(row(
+                ghostBtn("LuizFace RES", v -> installAsset("luizface3.vxp", "luizface3.vxp")),
+                ghostBtn("Face REF", v -> installAsset("ref.vxp", "refface.vxp"))));
+        mre.addView(row(
+                ghostBtn("LuizFace", v -> installAsset("luizface.vxp", "luizface.vxp")),
+                ghostBtn("LuizApp", v -> installAsset("luizapp.vxp", "luizapp.vxp"))));
+        mre.addView(ghostBtn("Ronman digital (template)", v -> installAsset("ronman.vxp", "ronman.vxp")));
+        mre.addView(row(
+                primaryBtn("Instalar VXP…", v -> {
+                    Intent i = new Intent(Intent.ACTION_OPEN_DOCUMENT);
+                    i.addCategory(Intent.CATEGORY_OPENABLE);
+                    i.setType("*/*");
+                    startActivityForResult(i, REQ_VXP);
+                }),
+                ghostBtn("Listar (MREE)", v -> W26.get().mreeList())));
+        vxpName = field("luizface3.vxp");
+        mre.addView(labeled("Nome do VXP", vxpName));
+        mre.addView(row(
+                ghostBtn("Status", v -> W26.get().mreeStatus(vxpName())),
+                ghostBtn("Permissões", v -> W26.get().mreeSetPermission(vxpName(), 0xFFFFFFFF))));
+        mre.addView(row(
+                ghostBtn("Apagar", v -> W26.get().mreeUninstall(vxpName())),
+                dangerBtn("Excluir", v -> W26.get().mreeDelete(vxpName()))));
+        mre.addView(row(
+                dangerBtn("Desinstalar TODOS", v -> W26.get().mreeUninstallAll()),
+                ghostBtn("Limpar testes", v -> cleanTests())));
+        c.addView(mre);
+
+        return scroll(c);
+    }
+
+    // ---- pagina: AJUSTES (sync + finder) ----
+
+    private View pageSettings() {
+        LinearLayout c = pageContainer();
+
         LinearLayout sync = card();
         sync.addView(sectionTitle("Sincronização"));
         autoSyncSwitch = makeSwitch(Prefs.autoSync(this));
-        autoSyncSwitch.setOnCheckedChangeListener((b, c) -> Prefs.setAutoSync(this, c));
+        autoSyncSwitch.setOnCheckedChangeListener((b, checked) -> Prefs.setAutoSync(this, checked));
         sync.addView(toggleRow("Hora automática ao conectar", autoSyncSwitch));
         notifSwitch = makeSwitch(Prefs.notifEnabled(this));
-        notifSwitch.setOnCheckedChangeListener((b, c) -> {
-            Prefs.setNotifEnabled(this, c);
+        notifSwitch.setOnCheckedChangeListener((b, checked) -> {
+            Prefs.setNotifEnabled(this, checked);
             refreshStatus();
         });
         sync.addView(toggleRow("Encaminhar notificações", notifSwitch));
@@ -213,11 +507,10 @@ public class MainActivity extends Activity implements W26.Listener {
                 ghostBtn("Notificação teste", v -> W26.get().notifyWatch(
                         "W26", "Teste do celular", "Se você está lendo isso, funcionou!"))));
         sync.addView(row(
-                ghostBtn("Testar alerta do celular", v -> alertPhone()),
+                ghostBtn("Testar alerta celular", v -> alertPhone()),
                 ghostBtn("Enviar clima", v -> Weather.fetchAndPush(this))));
-        ctrl.addView(sync);
+        c.addView(sync);
 
-        // ---- Finder ----
         LinearLayout find = card();
         find.addView(sectionTitle("Finder / localizador"));
         TextView note = new TextView(this);
@@ -250,95 +543,48 @@ public class MainActivity extends Activity implements W26.Listener {
                 log("finder: sem app de mapa (" + e.getMessage() + ")");
             }
         }));
-        ctrl.addView(find);
+        c.addView(find);
 
-        // ---- Mostradores & apps ----
-        LinearLayout mre = card();
-        mre.addView(sectionTitle("Mostradores & apps (MRE / SPP)"));
-        mre.addView(row(
-                primaryBtn("LuizFace RES", v -> installAsset("luizface3.vxp", "luizface3.vxp")),
-                primaryBtn("Face REF", v -> installAsset("ref.vxp", "refface.vxp"))));
-        mre.addView(row(
-                ghostBtn("LuizFace", v -> installAsset("luizface.vxp", "luizface.vxp")),
-                ghostBtn("LuizApp", v -> installAsset("luizapp.vxp", "luizapp.vxp"))));
-        mre.addView(ghostBtn("Ronman digital (template)", v -> installAsset("ronman.vxp", "ronman.vxp")));
-        mre.addView(row(
-                ghostBtn("Instalar VXP…", v -> {
-                    Intent i = new Intent(Intent.ACTION_OPEN_DOCUMENT);
-                    i.addCategory(Intent.CATEGORY_OPENABLE);
-                    i.setType("*/*");
-                    startActivityForResult(i, REQ_VXP);
-                }),
-                ghostBtn("MREE listar", v -> W26.get().mreeList())));
-        vxpName = field("luizface3.vxp");
-        mre.addView(labeled("Nome do VXP", vxpName));
-        mre.addView(row(
-                ghostBtn("Status", v -> W26.get().mreeStatus(vxpName())),
-                ghostBtn("Permissões", v -> W26.get().mreeSetPermission(vxpName(), 0xFFFFFFFF))));
-        mre.addView(row(
-                ghostBtn("Apagar", v -> W26.get().mreeUninstall(vxpName())),
-                dangerBtn("Excluir", v -> W26.get().mreeDelete(vxpName()))));
-        mre.addView(row(
-                dangerBtn("Desinstalar TODOS", v -> W26.get().mreeUninstallAll()),
-                ghostBtn("Limpar testes", v -> cleanTests())));
-        ctrl.addView(mre);
+        return scroll(c);
+    }
 
-        // ---- Criar mostrador DIGITAL (fundos pre-montados, estatisticas nativas) ----
-        LinearLayout face = card();
-        face.addView(sectionTitle("Criar mostrador digital"));
-        facePreset = new Spinner(this);
-        String[] names = new String[FaceBuilder.PRESETS.length];
-        for (int i = 0; i < names.length; i++) names[i] = FaceBuilder.PRESETS[i].name;
-        ArrayAdapter<String> pa = new ArrayAdapter<>(this,
-                android.R.layout.simple_spinner_item, names);
-        pa.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item);
-        facePreset.setAdapter(pa);
-        face.addView(labeled("Fundo", facePreset));
-        faceInfo = statValue("Digital com horas + estatísticas (passos/HR/data) e atalhos "
-                + "de toque (música/HR) nativos do relógio. Os dois fundos já vêm no template; "
-                + "o relógio alterna entre eles pelo toque.");
-        face.addView(faceInfo);
-        face.addView(primaryBtn("Gerar e instalar no relógio", v -> installFace()));
-        ctrl.addView(face);
+    // ---- pagina: CONSOLE (protocolo + log) ----
 
-        // ---- Console (colapsavel) ----
-        LinearLayout advBody = new LinearLayout(this);
-        advBody.setOrientation(LinearLayout.VERTICAL);
+    private View pageConsole() {
+        LinearLayout c = pageContainer();
+
+        LinearLayout adv = card();
+        adv.addView(sectionTitle("Console de protocolo"));
         tjdCmd = field("X1,LINK");
-        advBody.addView(labeled("TJD (sem $LHBT)", tjdCmd));
-        advBody.addView(ghostBtn("Enviar TJD", v -> {
-            String c = tjdCmd.getText().toString().trim();
-            if (!c.isEmpty()) W26.get().sendTjd(c);
+        adv.addView(labeled("TJD (sem $LHBT)", tjdCmd));
+        adv.addView(ghostBtn("Enviar TJD", v -> {
+            String cmd = tjdCmd.getText().toString().trim();
+            if (!cmd.isEmpty()) W26.get().sendTjd(cmd);
         }));
         mtkHex = field("SYNC REQV");
-        advBody.addView(labeled("MTK cru (hex ou texto)", mtkHex));
-        advBody.addView(row(
+        adv.addView(labeled("MTK cru (hex ou texto)", mtkHex));
+        adv.addView(row(
                 ghostBtn("Enviar texto", v -> {
                     String s = mtkHex.getText().toString().trim();
                     if (!s.isEmpty()) W26.get().sendMtkAuto(Mtk.cmd(s));
                 }),
                 ghostBtn("Enviar hex", v -> sendHex())));
-        ctrl.addView(collapsible("Console de protocolo", advBody));
+        c.addView(adv);
 
-        // ---- Log (colapsavel) ----
-        LinearLayout logBody = new LinearLayout(this);
-        logBody.setOrientation(LinearLayout.VERTICAL);
+        LinearLayout logCard = card();
+        logCard.addView(sectionTitle("Log"));
         logView = new TextView(this);
         logView.setTextSize(11);
         logView.setTextColor(MUTED);
         logView.setTypeface(Typeface.MONOSPACE);
         logScroll = new ScrollView(this);
         logScroll.addView(logView);
-        logBody.addView(logScroll, new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, dp(220)));
-        logBody.addView(ghostBtn("Limpar log", v -> logView.setText("")));
-        ctrl.addView(collapsible("Log", logBody));
+        logCard.addView(logScroll, new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, dp(320)));
+        logCard.addView(ghostBtn("Limpar log", v -> logView.setText("")));
+        c.addView(logCard);
 
-        ScrollView scroll = new ScrollView(this);
-        scroll.addView(ctrl);
-        root.addView(scroll, new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f));
-        return root;
+        return scroll(c);
     }
 
     // ---- acoes ----
@@ -454,6 +700,7 @@ public class MainActivity extends Activity implements W26.Listener {
     private void refreshStatus() {
         int wb = W26.get().getWatchBattery();
         watchBattView.setText(wb < 0 ? "—" : wb + "%");
+        if (watchRing != null) watchRing.setPercent(wb < 0 ? 0 : wb);
         phoneBattView.setText(phoneBattery() + "%");
         gpsView.setText(Finder.hasFix(this) ? "ok" : "—");
         long ls = Prefs.lastSync(this);
@@ -489,6 +736,7 @@ public class MainActivity extends Activity implements W26.Listener {
     @Override
     public void onBattery(int percent) {
         watchBattView.setText(percent + "%");
+        if (watchRing != null) watchRing.setPercent(percent);
         log("bateria do relógio: " + percent + "%");
     }
 
@@ -527,67 +775,132 @@ public class MainActivity extends Activity implements W26.Listener {
         return (int) (v * getResources().getDisplayMetrics().density);
     }
 
+    private LinearLayout pageContainer() {
+        LinearLayout c = new LinearLayout(this);
+        c.setOrientation(LinearLayout.VERTICAL);
+        c.setPadding(dp(16), dp(4), dp(16), dp(18));
+        return c;
+    }
+
+    private ScrollView scroll(View content) {
+        ScrollView s = new ScrollView(this);
+        s.setFillViewport(true);
+        s.setVerticalScrollBarEnabled(false);
+        s.addView(content, new ScrollView.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+        return s;
+    }
+
+    private ImageView icon(int kind, int color, int sizeDp) {
+        ImageView iv = new ImageView(this);
+        iv.setImageDrawable(new Icon(kind, color, getResources().getDisplayMetrics().density));
+        return iv;
+    }
+
     private LinearLayout card() {
         LinearLayout c = new LinearLayout(this);
         c.setOrientation(LinearLayout.VERTICAL);
         GradientDrawable bg = new GradientDrawable();
         bg.setColor(CARD);
-        bg.setCornerRadius(dp(16));
+        bg.setCornerRadius(dp(20));
         bg.setStroke(dp(1), STROKE);
         c.setBackground(bg);
-        c.setPadding(dp(16), dp(14), dp(16), dp(16));
+        c.setPadding(dp(17), dp(15), dp(17), dp(17));
         LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
-        lp.bottomMargin = dp(14);
+        lp.bottomMargin = dp(13);
         c.setLayoutParams(lp);
         return c;
     }
 
+    private View quickTile(int iconKind, String label, View.OnClickListener l) {
+        LinearLayout t = new LinearLayout(this);
+        t.setOrientation(LinearLayout.VERTICAL);
+        t.setGravity(Gravity.CENTER);
+        GradientDrawable bg = new GradientDrawable();
+        bg.setColor(CARD);
+        bg.setCornerRadius(dp(18));
+        bg.setStroke(dp(1), STROKE);
+        t.setBackground(new RippleDrawable(ColorStateList.valueOf(0x223D7EFF), bg, null));
+        t.setPadding(dp(8), dp(16), dp(8), dp(14));
+        t.setOnClickListener(l);
+        t.addView(icon(iconKind, ACCENT, 26), new LinearLayout.LayoutParams(dp(26), dp(26)));
+        TextView lab = new TextView(this);
+        lab.setText(label);
+        lab.setTextSize(12);
+        lab.setTextColor(TEXT);
+        lab.setTypeface(Typeface.DEFAULT_BOLD);
+        lab.setGravity(Gravity.CENTER);
+        LinearLayout.LayoutParams llp = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        llp.topMargin = dp(8);
+        t.addView(lab, llp);
+        return t;
+    }
+
+    private View statTile(String label, TextView value) {
+        LinearLayout t = new LinearLayout(this);
+        t.setOrientation(LinearLayout.VERTICAL);
+        GradientDrawable bg = new GradientDrawable();
+        bg.setColor(CARD2);
+        bg.setCornerRadius(dp(16));
+        bg.setStroke(dp(1), STROKE);
+        t.setBackground(bg);
+        t.setPadding(dp(14), dp(12), dp(14), dp(12));
+        TextView lab = new TextView(this);
+        lab.setText(label);
+        lab.setTextSize(11);
+        lab.setTextColor(MUTED);
+        t.addView(lab);
+        LinearLayout.LayoutParams vlp = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        vlp.topMargin = dp(3);
+        t.addView(value, vlp);
+        return t;
+    }
+
+    private View infoRow(String label, String value) {
+        LinearLayout r = new LinearLayout(this);
+        r.setOrientation(LinearLayout.HORIZONTAL);
+        r.setPadding(0, dp(5), 0, dp(5));
+        TextView l = new TextView(this);
+        l.setText(label);
+        l.setTextSize(13);
+        l.setTextColor(MUTED);
+        r.addView(l, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
+        TextView v = new TextView(this);
+        v.setText(value);
+        v.setTextSize(13);
+        v.setTextColor(TEXT);
+        v.setTypeface(Typeface.DEFAULT_BOLD);
+        v.setGravity(Gravity.END);
+        r.addView(v, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1.4f));
+        return r;
+    }
+
     private TextView sectionTitle(String text) {
         TextView t = new TextView(this);
-        t.setText(text.toUpperCase(java.util.Locale.ROOT));
-        t.setTextSize(11);
-        t.setTextColor(MUTED);
+        t.setText(text);
+        t.setTextSize(13);
+        t.setTextColor(TEXT);
         t.setTypeface(Typeface.DEFAULT_BOLD);
-        t.setLetterSpacing(0.12f);
-        t.setPadding(0, 0, 0, dp(10));
+        t.setPadding(0, dp(2), 0, dp(10));
         return t;
     }
 
     private TextView statValue(String v) {
         TextView t = new TextView(this);
         t.setText(v);
-        t.setTextSize(16);
+        t.setTextSize(17);
         t.setTextColor(TEXT);
         t.setTypeface(Typeface.DEFAULT_BOLD);
         return t;
     }
 
-    private View stat(String label, TextView value) {
-        LinearLayout l = new LinearLayout(this);
-        l.setOrientation(LinearLayout.VERTICAL);
-        TextView lab = new TextView(this);
-        lab.setText(label);
-        lab.setTextSize(11);
-        lab.setTextColor(MUTED);
-        l.addView(lab);
-        l.addView(value);
-        l.setPadding(0, dp(4), dp(8), dp(6));
-        return l;
-    }
-
-    private View statRow(View... tiles) {
-        LinearLayout r = new LinearLayout(this);
-        r.setOrientation(LinearLayout.HORIZONTAL);
-        for (View v : tiles)
-            r.addView(v, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
-        return r;
-    }
-
     private TextView chip(String text, int bg, int fg) {
         TextView t = new TextView(this);
         t.setText(text);
-        t.setTextSize(12);
+        t.setTextSize(11);
         t.setTextColor(fg);
         t.setTypeface(Typeface.DEFAULT_BOLD);
         GradientDrawable g = new GradientDrawable();
@@ -607,19 +920,19 @@ public class MainActivity extends Activity implements W26.Listener {
         b.setTypeface(Typeface.DEFAULT_BOLD);
         GradientDrawable g = new GradientDrawable();
         g.setColor(bg);
-        g.setCornerRadius(dp(12));
+        g.setCornerRadius(dp(14));
         b.setBackground(new RippleDrawable(ColorStateList.valueOf(0x33FFFFFF), g, null));
-        b.setPadding(dp(12), dp(11), dp(12), dp(11));
+        b.setPadding(dp(12), dp(12), dp(12), dp(12));
         b.setOnClickListener(l);
         LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
-        lp.topMargin = dp(6);
+        lp.topMargin = dp(7);
         b.setLayoutParams(lp);
         return b;
     }
 
     private Button primaryBtn(String text, View.OnClickListener l) {
-        return btnBase(text, ACCENT, DARK, l);
+        return btnBase(text, ACCENT, 0xFFFFFFFF, l);
     }
 
     private Button ghostBtn(String text, View.OnClickListener l) {
@@ -627,7 +940,7 @@ public class MainActivity extends Activity implements W26.Listener {
     }
 
     private Button dangerBtn(String text, View.OnClickListener l) {
-        return btnBase(text, WARN, DARK, l);
+        return btnBase(text, 0x33F0616D, WARN, l);
     }
 
     private View row(View... views) {
@@ -636,8 +949,8 @@ public class MainActivity extends Activity implements W26.Listener {
         for (int i = 0; i < views.length; i++) {
             LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(0,
                     ViewGroup.LayoutParams.WRAP_CONTENT, 1f);
-            lp.topMargin = dp(6);
-            if (i < views.length - 1) lp.rightMargin = dp(6);
+            lp.topMargin = dp(7);
+            if (i < views.length - 1) lp.rightMargin = dp(8);
             r.addView(views[i], lp);
         }
         return r;
@@ -646,47 +959,23 @@ public class MainActivity extends Activity implements W26.Listener {
     private Switch makeSwitch(boolean checked) {
         Switch s = new Switch(this);
         s.setChecked(checked);
-        s.setThumbTintList(ColorStateList.valueOf(ACCENT));
-        s.setTrackTintList(ColorStateList.valueOf(0xFF2A3A4D));
+        s.setThumbTintList(ColorStateList.valueOf(0xFFFFFFFF));
+        s.setTrackTintList(ColorStateList.valueOf(ACCENT));
         return s;
     }
 
     private View toggleRow(String label, Switch sw) {
         LinearLayout r = new LinearLayout(this);
         r.setOrientation(LinearLayout.HORIZONTAL);
-        r.setGravity(android.view.Gravity.CENTER_VERTICAL);
+        r.setGravity(Gravity.CENTER_VERTICAL);
         TextView t = new TextView(this);
         t.setText(label);
         t.setTextSize(14);
         t.setTextColor(TEXT);
         r.addView(t, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
         r.addView(sw);
-        r.setPadding(0, dp(4), 0, dp(4));
+        r.setPadding(0, dp(5), 0, dp(5));
         return r;
-    }
-
-    private View collapsible(String title, View content) {
-        LinearLayout c = card();
-        content.setVisibility(View.GONE);
-        LinearLayout head = new LinearLayout(this);
-        head.setOrientation(LinearLayout.HORIZONTAL);
-        head.setGravity(android.view.Gravity.CENTER_VERTICAL);
-        TextView t = sectionTitle(title);
-        t.setPadding(0, 0, 0, 0);
-        head.addView(t, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
-        TextView arrow = new TextView(this);
-        arrow.setText("▸");
-        arrow.setTextColor(MUTED);
-        arrow.setTextSize(14);
-        head.addView(arrow);
-        head.setOnClickListener(v -> {
-            boolean show = content.getVisibility() != View.VISIBLE;
-            content.setVisibility(show ? View.VISIBLE : View.GONE);
-            arrow.setText(show ? "▾" : "▸");
-        });
-        c.addView(head);
-        c.addView(content);
-        return c;
     }
 
     private EditText field(String text) {
@@ -698,10 +987,10 @@ public class MainActivity extends Activity implements W26.Listener {
         e.setHintTextColor(MUTED);
         GradientDrawable bg = new GradientDrawable();
         bg.setColor(FIELD);
-        bg.setCornerRadius(dp(10));
+        bg.setCornerRadius(dp(12));
         bg.setStroke(dp(1), STROKE);
         e.setBackground(bg);
-        e.setPadding(dp(12), dp(9), dp(12), dp(9));
+        e.setPadding(dp(13), dp(10), dp(13), dp(10));
         return e;
     }
 
@@ -712,7 +1001,7 @@ public class MainActivity extends Activity implements W26.Listener {
         t.setText(label);
         t.setTextSize(11);
         t.setTextColor(MUTED);
-        t.setPadding(0, dp(6), 0, dp(3));
+        t.setPadding(0, dp(7), 0, dp(4));
         l.addView(t);
         l.addView(field);
         return l;
@@ -785,12 +1074,16 @@ public class MainActivity extends Activity implements W26.Listener {
         boolean up = "conectado".equals(s);
         stateView.setText(s);
         GradientDrawable g = new GradientDrawable();
-        g.setColor(up ? GREEN : GHOST);
+        g.setColor(up ? 0x222DD4A7 : GHOST);
         g.setCornerRadius(dp(20));
         stateView.setBackground(g);
-        stateView.setTextColor(up ? DARK : TEXT);
+        stateView.setTextColor(up ? GREEN : MUTED);
         watchStateView.setText(up ? "conectado" : s);
-        watchStateView.setTextColor(up ? GREEN : MUTED);
+        GradientDrawable wg = new GradientDrawable();
+        wg.setColor(up ? 0x332DD4A7 : 0x33FFFFFF);
+        wg.setCornerRadius(dp(20));
+        watchStateView.setBackground(wg);
+        watchStateView.setTextColor(0xFFFFFFFF);
         if (up) {
             Finder.capture(this);
             refreshFinder();
