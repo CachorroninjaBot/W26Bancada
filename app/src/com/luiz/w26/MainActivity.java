@@ -255,6 +255,7 @@ public class MainActivity extends Activity implements W26.Listener {
                 ghostBtn("LuizFace", v -> installAsset("luizface.vxp", "luizface.vxp")),
                 ghostBtn("LuizApp", v -> installAsset("luizapp.vxp", "luizapp.vxp"))));
         mre.addView(ghostBtn("LuizFace 240 (teste ponteiros)", v -> installAsset("luizface4.vxp", "luizface240.vxp")));
+        mre.addView(ghostBtn("Ronman digital (teste render)", v -> installAsset("ronman.vxp", "ronman.vxp")));
         mre.addView(row(
                 ghostBtn("Instalar VXP…", v -> {
                     Intent i = new Intent(Intent.ACTION_OPEN_DOCUMENT);
