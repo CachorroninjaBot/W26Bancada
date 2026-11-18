@@ -39,6 +39,15 @@ public final class W26 {
         void onLog(String line);
 
         void onState(String state);
+
+        default void onBattery(int percent) {
+        }
+
+        default void onFindPhone(boolean start) {
+        }
+
+        default void onMusic(String action) {
+        }
     }
 
     private static final W26 INSTANCE = new W26();
@@ -73,8 +82,15 @@ public final class W26 {
     private boolean discovered;
     private int mtu = 23;
     private int msgId = 100;
+    private volatile int watchBattery = -1;
+    private final StringBuilder tjdBuf = new StringBuilder();
 
     private W26() {
+    }
+
+    /** Bateria do relogio (0-100), ou -1 se ainda desconhecida. */
+    public int getWatchBattery() {
+        return watchBattery;
     }
 
     public void setListener(Listener l) {
@@ -89,6 +105,11 @@ public final class W26 {
         Log.d(TAG, s);
         final Listener l = listener;
         if (l != null) main.post(() -> l.onLog(s));
+    }
+
+    /** Log publico para helpers externos (clima, etc.). */
+    public void note(String s) {
+        log(s);
     }
 
     private void state(String s) {
@@ -117,6 +138,7 @@ public final class W26 {
         discovered = false;
         queue.clear();
         writing = false;
+        tjdBuf.setLength(0);
         BluetoothGatt g = gatt;
         gatt = null;
         if (g != null) {
@@ -227,12 +249,23 @@ public final class W26 {
     private void onRx(UUID uuid, byte[] value) {
         if (value == null || value.length == 0) return;
         if (CHR_TJD.equals(uuid)) {
-            String s = new String(value, StandardCharsets.UTF_8).trim();
-            log("TJD << " + s);
+            tjdBuf.append(new String(value, StandardCharsets.UTF_8));
+            String all = tjdBuf.toString();
+            int idx;
+            while ((idx = all.indexOf('#')) >= 0) {
+                String frame = all.substring(0, idx + 1);
+                all = all.substring(idx + 1);
+                log("TJD << " + frame.trim());
+                parseTjd(frame);
+            }
+            tjdBuf.setLength(0);
+            tjdBuf.append(all);
+            if (tjdBuf.length() > 4096) tjdBuf.setLength(0);
         } else if (CHR_MTK_R.equals(uuid)) {
             String s = Mtk.decode(value);
             if (!s.isEmpty()) log("MTK << " + s.trim());
             else log("MTK << " + hex(value));
+            parseMtk(s);
         }
     }
 
@@ -240,6 +273,46 @@ public final class W26 {
         StringBuilder sb = new StringBuilder();
         for (int i = 0; i < Math.min(b.length, 24); i++) sb.append(String.format("%02x ", b[i]));
         return sb.toString().trim();
+    }
+
+    /** Interpreta respostas TJD: bateria do relogio e pedido de "encontrar celular". */
+    private void parseTjd(String s) {
+        final Listener l = listener;
+        java.util.regex.Matcher bat = java.util.regex.Pattern
+                .compile("GET,7[^0-9]{0,3}(\\d{1,3})").matcher(s);
+        if (bat.find()) {
+            int pct = Integer.parseInt(bat.group(1));
+            if (pct >= 0 && pct <= 100) {
+                watchBattery = pct;
+                if (l != null) main.post(() -> l.onBattery(pct));
+            }
+        }
+        String low = s.toLowerCase(java.util.Locale.ROOT);
+        if (low.contains("findapp")) {
+            boolean start = low.contains("findapp,1");
+            sendTjd("X1,PRRET,FindApp");
+            if (l != null) main.post(() -> l.onFindPhone(start));
+        }
+    }
+
+    /** Interpreta o canal MTK: controle de musica (msctrl) vindo do relogio. */
+    private void parseMtk(String s) {
+        if (s == null || !s.contains("msctrl")) return;
+        String[] p = s.trim().split("\\s+");
+        if (p.length < 5) return;
+        String action;
+        switch (p[4]) {
+            case "1": action = "play_pause"; break;
+            case "3": action = "play"; break;
+            case "4": action = "pause"; break;
+            case "5": action = "vol+"; break;
+            case "6": action = "vol-"; break;
+            case "7": action = "prev"; break;
+            case "8": action = "next"; break;
+            default: return;
+        }
+        final Listener l = listener;
+        if (l != null) main.post(() -> l.onMusic(action));
     }
 
     // ---- envio (fila: BLE so aceita uma escrita por vez) ----
@@ -421,6 +494,7 @@ public final class W26 {
                 byte[] f = Arrays.copyOfRange(b, i, i + 8 + n);
                 String s = Mtk.decode(f).trim();
                 log("MTK-SPP << " + (s.isEmpty() ? hex(f) : s));
+                parseMtk(s);
                 int jump = 8 + n;
                 if (s.startsWith("MREE ")) {
                     int plen;

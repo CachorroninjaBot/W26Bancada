@@ -53,14 +53,21 @@ MTK e `L4Comm.BrltWallpaperPush` (caminho de wallpaper do app oficial).
 - `app/src/com/luiz/w26/W26.java` — GATT + SPP + fila de instalação MREE + alerta 1802.
 - `app/src/com/luiz/w26/Mtk.java` — montagem de frames MTK.
 - `app/src/com/luiz/w26/Finder.java` — ultima posicao GPS do celular + mapa + alerta.
-- `app/src/com/luiz/w26/MainActivity.java` — UI em secoes (conexao, finder, MRE, sync, console).
+- `app/src/com/luiz/w26/Prefs.java` — preferencias de sync (hora auto, notificacoes, ultima sync).
+- `app/src/com/luiz/w26/Weather.java` — clima Open-Meteo (sem chave) -> `X0,WEATHER`.
+- `app/src/com/luiz/w26/NotiSvc.java` — listener que encaminha notificacoes (respeita o toggle).
+- `app/src/com/luiz/w26/MainActivity.java` — UI em secoes (status, conexao, sync, finder, MRE, console, log).
 - `app/assets/*.vxp` — mostradores embarcados (face, luizface, luizapp, luizface3=RES, ref=Longines).
 
-Features (18/11): UI escura em cards; **finder** (guarda GPS do celular ao conectar,
-mostra data/coordenadas, abre no mapa via `geo:`, botao "Fazer vibrar" = Immediate
-Alert `1802/2A06` + TJD FindDevice); MRE cmd `8` (set permissoes), `-4` (uninstall
-all), `-3` (push only); `build.py` emite tag `0x35` (mascara de permissoes) se
-`permission_mask` no manifest.
+Features (18/11): UI escura em cards com header de estado + card de status dos dois
+dispositivos; **finder** (GPS do celular ao conectar, mapa `geo:`, "Fazer vibrar" =
+`1802/2A06` + TJD FindDevice); **sync automatico** (hora ao conectar, bateria do
+relogio parseada de `X0,GET,7,<n>#` com remontagem de frames `#`, notificacoes com
+toggle + status do listener, refresh a cada 30 s); **encontrar celular** (watch manda
+`X1,PRSEND,FindApp,1/0` -> app toca/vibra 11 s e ACK `X1,PRRET,FindApp`); **musica**
+(watch->phone via MTK `msctrl`, opcode no indice 4 -> teclas de media); **clima**
+(Open-Meteo -> `X0,WEATHER;cidade;dias`); MRE cmd `8`/`-4`/`-3`; `build.py` emite tag
+`0x35` se `permission_mask` no manifest.
 
 Build: `cd app && bash build.sh` → `app/dist/w26.apk`.
 Instalar: `adb install -r app/dist/w26.apk` e abrir "W26 Bancada".
@@ -134,8 +141,25 @@ MRE_EXEC=1 MRE_RES=sdk/resource_long.bin MRE_NOFIX=1 MRE_REFLOW=0x4b4c \
   `ResEditor`, `LogoMake.exe`, `ElfConvert.exe` em `tmp/mresdk/tools` (cópia antiga).
 - **Caminho para código próprio:** compilador ADS (proprietário) ou adaptar o
   entry/convenção de símbolos ao MRE 2.0 (engenharia reversa do loader).
-- O experimento `LuizFaceRes` (recursos oficiais + código GCC) deu **preto**,
-  consistente com a incompatibilidade GCC↔MRE2.0 acima.
+- O experimento `LuizFaceRes` (recursos oficiais + código GCC) mostra **o fundo
+  Longines, sem ponteiros e sem vibração** → o firmware desenha o fundo do
+  `.vm_res` nativamente e NÃO executa o código em modo face (consistente com
+  GCC↔MRE2.0). O `ref.vxp` "oficial" é na verdade um repack de terceiro: o código
+  ADS dele é um stub `draw_hello` que só desenha texto/retângulo (sem
+  `vm_res_get_image`/`vm_graphic_blt`/rotate) — também não desenha ponteiros.
+- **Ponteiros + config ESTÃO no `.vm_res`** (@`0x4b4c`): `clock_bg.png`, `hand.png`,
+  `minute.png`, `second.png` (todos **240x240**), `preview.png`, e `configtbl.bin`
+  (16 B, pivô bytes[2,3] = `0x77,0x77` = (119,119), centro de um dial 240x240).
+  `configtbl` não aparece no SDK MRE → é convenção do render nativo do firmware.
+- **Causa provável dos ponteiros sumidos:** mismatch de resolução. A tag `0x10`
+  declara 176x220 (tela real), mas as imagens de ponteiro são 240x240 com pivô
+  (119,119); a camada de rotação estoura o limite de tela/layer e falha. O fundo
+  (blit simples) aparece; os ponteiros (rotação) não.
+- **Próximo experimento (resource-only):** redimensionar `clock_bg/hand/minute/second`
+  para ≤176x220 (ex. 176x176), `configtbl.bin` pivô (88,88) = `00 00 58 58 …0a`,
+  manter os NOMES dos recursos, tag `0x10`=176x220, `0x34`=1, copiar o mapa de IDs
+  tag-`0x13` do ref. Instalar via MREE e selecionar. Se os ponteiros aparecerem →
+  confirma render nativo + mismatch de tamanho.
 
 ## 7. Estado atual (18/11/2026, ~04h)
 
@@ -181,17 +205,25 @@ Serviços que o W26 expõe: `1800/1801` (GAP/GATT), `1802` **Immediate Alert**
 - App oficial decompilado (`tmp/jadx-out` na cópia antiga): `VxpInstallController`
   tem cmd `-3` (push only), `-4` (uninstall all), `8` (set permission); a tag
   `0x35` no VXP declara a máscara de permissões exigida (lida por
-  `MREProperties.getPermission`). Nosso `build.py` ainda não emite `0x35`.
+  `MREProperties.getPermission`). Nosso `build.py` já emite `0x35` quando
+  `permission_mask` está no manifest.
+- Vocabulário TJD/MTK do app oficial (jadx-out) que o nosso app já usa: bateria
+  `X0,GET,7` → `X0,GET,7,<n>#`; find-phone `X1,PRSEND,FindApp,1/0` (ACK
+  `X1,PRRET,FindApp`); find-device `X1,PRSET,FindDevice,<0|1>`; musica MTK
+  `msctrl` opcode idx4 (3=play 4=pause 5=vol+ 6=vol- 7=prev 8=next); clima
+  `X0,WEATHER;cidade;week,yyyy-MM-dd,min,max,icon,desc|…`; hora
+  `X1,PRSET,DATETIME`. **Não existe sync de contatos/phonebook** no app oficial.
 
 ## 10. Próximos passos
 
-1. Rodar o experimento decisivo (§8) e registrar o resultado.
-2. Se código roda: restaurar o mostrador analógico (`/tmp/luizface_backup.c`),
-   depois arte própria no `.vm_res` (PACKRES/ResEditor em `tmp/mresdk/tools`).
-3. Emitir tag `0x35` + instalar com máscara de permissões (cmd 8) como o oficial.
-4. Roadmap maior: apps MRE próprios, sync celular↔relógio sobre SPP, finder
-   (última localização do celular + alerta no relógio), UI própria e canal de
-   atualização de VXP pelo nosso app.
+1. **Ponteiros:** rodar o experimento resource-only (§6): recursos redimensionados
+   ≤176x220 + `configtbl` pivô (88,88), nomes preservados, IDs tag-`0x13` do ref.
+2. Arte própria NOSSA no `.vm_res` (PACKRES/ResEditor em `tmp/mresdk/tools`) uma
+   vez confirmado o render nativo; preview/icone próprios.
+3. Sync: metadata de musica phone→watch (`mtk_msctrl` push `D 0 00 31 …`), clima
+   com nome de cidade real (reverse-geocode), chamadas/SMS com XML `call`/`sms`.
+4. Roadmap maior: apps MRE próprios (ADS ou RE do loader MRE2.0), canal de
+   atualização de VXP pelo nosso app, interface 100% nossa.
 
 ## 11. Estrutura
 

@@ -14,6 +14,7 @@ public class NotiSvc extends NotificationListenerService {
     @Override
     public void onNotificationPosted(StatusBarNotification sbn) {
         if (sbn == null || sbn.getPackageName().equals(getPackageName())) return;
+        if (!Prefs.notifEnabled(this)) return;
         Notification n = sbn.getNotification();
         if (n == null || (n.flags & Notification.FLAG_ONGOING_EVENT) != 0) return;
         Bundle ex = n.extras;
