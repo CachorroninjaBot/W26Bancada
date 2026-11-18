@@ -108,13 +108,19 @@ public class MainActivity extends Activity implements W26.Listener {
 
         root.addView(row(
                 button("MREE CTA", v -> W26.get().mreeCta()),
-                button("Instalar QoderTest", v -> {
+                button("Instalar LuizFace", v -> {
                     try {
-                        W26.get().mreeInstall("qodertest.vxp", asset("qodertest.vxp"));
+                        W26.get().mreeInstall("luizface.vxp", asset("luizface.vxp"));
                     } catch (Exception e) {
                         log("asset: " + e.getMessage());
                     }
                 })));
+
+        root.addView(button("Limpar testes MRE (libera espaco)", v -> {
+            for (String n : new String[]{"qoder.vxp", "qoder2.vxp", "qodertest.vxp", "face2.vxp", "luizface.vxp"})
+                W26.get().mreeUninstall(n);
+            log("limpeza: uninstall pedido para os vxp de teste");
+        }));
 
         vxpName = new EditText(this);
         vxpName.setText("face.vxp");

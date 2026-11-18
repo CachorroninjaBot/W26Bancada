@@ -169,7 +169,7 @@ add_int_tag(0x2d, 0xFFFFFFFF)  # push notification ID (unused)
 add_string_tag(0x2e, "")  # push notification sender email
 add_int_tag(0x2f, 0)  # doesn't use AB2 formant image (what)
 add_int_tag(0x31, 0)  # doesn't use advanced icon format
-add_int_tag(0x32, 0)  # doesn't auto-start on power on
+add_int_tag(0x32, 1 if config.get("auto_start") else 0)  # auto-start no boot (mostrador)
 add_int_tag(0x33, 1)  # cria atalho do app ao instalar
 
 append_int32(0)  # 8 reserved bytes

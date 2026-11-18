@@ -13,7 +13,7 @@ rm -rf build && mkdir -p build/classes build/dex dist
 mkdir -p build/assets
 cp assets/* build/assets/
 if [ -f ../mre/hello/MyMREApp.vxp ]; then
-    cp ../mre/hello/MyMREApp.vxp build/assets/qodertest.vxp
+    cp ../mre/hello/MyMREApp.vxp build/assets/luizface.vxp
 fi
 
 javac --release 11 -Xlint:-options -classpath "$AJ" -d build/classes \

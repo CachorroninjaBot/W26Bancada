@@ -1,11 +1,15 @@
 {
-    "name": "QoderTest",
+    "name": "LuizFace",
     "vendor": "Luiz",
-    "app_name_multilang": ["Qoder Test", "Qoder Test", "Qoder Test"],
-    "description": "Bancada W26: app MRE compilado por nos",
+    "app_name_multilang": [
+        "LuizFace",
+        "LuizFace",
+        "LuizFace"
+    ],
+    "description": "Mostrador analogico LuizFace (W26)",
     "version": 1,
-
     "required_ram": 512,
     "imsi": "1234567890",
-    "run_in_background": 0
+    "run_in_background": 0,
+    "auto_start": 0
 }

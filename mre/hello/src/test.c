@@ -1,231 +1,213 @@
-/*****************************************************************************
-*  Copyright Statement:
-*  --------------------
-*  This software is protected by Copyright and the information contained
-*  herein is confidential. The software may not be copied and the information
-*  contained herein may not be used or disclosed except with the written
-*  permission of MediaTek Inc. (C) 2005
-*
-*  BY OPENING THIS FILE, BUYER HEREBY UNEQUIVOCALLY ACKNOWLEDGES AND AGREES
-*  THAT THE SOFTWARE/FIRMWARE AND ITS DOCUMENTATIONS ("MEDIATEK SOFTWARE")
-*  RECEIVED FROM MEDIATEK AND/OR ITS REPRESENTATIVES ARE PROVIDED TO BUYER ON
-*  AN "AS-IS" BASIS ONLY. MEDIATEK EXPRESSLY DISCLAIMS ANY AND ALL WARRANTIES,
-*  EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE IMPLIED WARRANTIES OF
-*  MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE OR NONINFRINGEMENT.
-*  NEITHER DOES MEDIATEK PROVIDE ANY WARRANTY WHATSOEVER WITH RESPECT TO THE
-*  SOFTWARE OF ANY THIRD PARTY WHICH MAY BE USED BY, INCORPORATED IN, OR
-*  SUPPLIED WITH THE MEDIATEK SOFTWARE, AND BUYER AGREES TO LOOK ONLY TO SUCH
-*  THIRD PARTY FOR ANY WARRANTY CLAIM RELATING THERETO. MEDIATEK SHALL ALSO
-*  NOT BE RESPONSIBLE FOR ANY MEDIATEK SOFTWARE RELEASES MADE TO BUYER'S
-*  SPECIFICATION OR TO CONFORM TO A PARTICULAR STANDARD OR OPEN FORUM.
-*
-*  BUYER'S SOLE AND EXCLUSIVE REMEDY AND MEDIATEK'S ENTIRE AND CUMULATIVE
-*  LIABILITY WITH RESPECT TO THE MEDIATEK SOFTWARE RELEASED HEREUNDER WILL BE,
-*  AT MEDIATEK'S OPTION, TO REVISE OR REPLACE THE MEDIATEK SOFTWARE AT ISSUE,
-*  OR REFUND ANY SOFTWARE LICENSE FEES OR SERVICE CHARGE PAID BY BUYER TO
-*  MEDIATEK FOR SUCH MEDIATEK SOFTWARE AT ISSUE. 
-*
-*  THE TRANSACTION CONTEMPLATED HEREUNDER SHALL BE CONSTRUED IN ACCORDANCE
-*  WITH THE LAWS OF THE STATE OF CALIFORNIA, USA, EXCLUDING ITS CONFLICT OF
-*  LAWS PRINCIPLES.  ANY DISPUTES, CONTROVERSIES OR CLAIMS ARISING THEREOF AND
-*  RELATED THERETO SHALL BE SETTLED BY ARBITRATION IN SAN FRANCISCO, CA, UNDER
-*  THE RULES OF THE INTERNATIONAL CHAMBER OF COMMERCE (ICC).
-*
-*****************************************************************************/
-
+/*
+ * LuizFace - mostrador MRE para o W26 (240x240).
+ * Desenha o mostrador inteiro: anel, marcacoes, ponteiros e hora digital.
+ * Substitui o hello world de bancada; nenhum toque encerra o app.
+ */
 #include "vmsys.h"
-#include "vmio.h"
+#include "vmtimer.h"
 #include "vmgraph.h"
-#include "vmchset.h"
 #include "vmstdlib.h"
-// #include "ResID.h"
-#include "vm4res.h"
-/* ---------------------------------------------------------------------------
-* global variables
-* ------------------------------------------------------------------------ */
+#include <math.h>
 
-/* define this macro if application support background running. */
-#define		SUPPORT_BG		
+#define SUPPORT_BG
+#define PI_ 3.14159265f
 
+VMINT layer_hdl[1];
 
-VMINT		layer_hdl[1];	/* layer handle array. */
+static VMINT timer_id = -1;
+static vm_graphic_color g_color;
+static VMINT scr_w, scr_h;
 
-/* ---------------------------------------------------------------------------
- * local variables
- * ------------------------------------------------------------------------ */
-/*
-* system events 
-*/
-void handle_sysevt(VMINT message, VMINT param);
+static void handle_sysevt(VMINT message, VMINT param);
+static void handle_keyevt(VMINT event, VMINT keycode);
+static void handle_penevt(VMINT event, VMINT x, VMINT y);
+static void face_draw(void);
+static void tick(VMINT tid);
 
-/*
-* key events 
-*/
-void handle_keyevt(VMINT event, VMINT keycode);
-
-/*
-* pen events
-*/
-void handle_penevt(VMINT event, VMINT x, VMINT y);
-
-/*
-* demo
-*/
-static void draw_hello(void);
-
-/*
-* entry
-*/
-void vm_main(void) {
-	/* initialize layer handle */
-	layer_hdl[0] = -1;	
-	
-	/* register system events handler */
-	vm_reg_sysevt_callback(handle_sysevt);
-	
-	/* register keyboard events handler */
-	vm_reg_keyboard_callback(handle_keyevt);
-	
-	/* register pen events handler */
-	vm_reg_pen_callback(handle_penevt);
-
-	/* Init MRE resource */
-	vm_res_init();
-}
-
-void handle_sysevt(VMINT message, VMINT param) {
-#ifdef		SUPPORT_BG	
-/* The application updates the screen when receiving the message VM_MSG_PAINT 
-*  what is sent after the application is activated. The application can skip 
-*  the process on screen when the VM_MSG_ACTIVE or VM_MSG_INACTIVE is received.
-	*/
-	switch (message) {
-	case VM_MSG_CREATE:	/* the message of creation of application */
-		/* the GDI operation is not recommended as the response of the message*/
-		break;
-	case VM_MSG_PAINT:	/* the message of asking for application to repaint screen */
-		/* cerate base layer that has same size as the screen*/
-		layer_hdl[0] = vm_graphic_create_layer(0, 0, 
-			vm_graphic_get_screen_width(),		/* get screen width */
-			vm_graphic_get_screen_height(),		/* get screen height */
-			-1);		/* -1 means layer or canvas have no transparent color */
-		
-		/* set clip area */
-		vm_graphic_set_clip(0, 0, 
-			vm_graphic_get_screen_width(), 
-			vm_graphic_get_screen_height());
-		
-		draw_hello();	/* draw hello world! */
-		break;
-	case VM_MSG_HIDE:	
-		/* message of application state from foreground running to background running */
-		if( layer_hdl[0] != -1 )
-		{
-			vm_graphic_delete_layer(layer_hdl[0]);
-			layer_hdl[0] = -1;
-		}
-		break;
-	case VM_MSG_QUIT:	/* the message of quit of application */
-		if( layer_hdl[0] != -1 )
-		{
-			vm_graphic_delete_layer(layer_hdl[0]);
-			layer_hdl[0] = -1;
-		}
-		
-		/* Release all resource */
-		vm_res_deinit();
-
-		break;
-	}
-#else
-	switch (message) {
-	case VM_MSG_CREATE:	/* the message of creation of application */
-	case VM_MSG_ACTIVE: /* the message of application state from inactive to active */
-		/*cerate base layer that has same size as the screen*/
-		layer_hdl[0] = vm_graphic_create_layer(0, 0, 
-			vm_graphic_get_screen_width(),		/* get screen width */
-			vm_graphic_get_screen_height(),		/* get screen height */
-			-1);		/* -1 means layer or canvas have no transparent color */
-		
-		/* set clip area*/
-		vm_graphic_set_clip(0, 0, 
-			vm_graphic_get_screen_width(), 
-			vm_graphic_get_screen_height());
-		break;
-		
-	case VM_MSG_PAINT:	/* the message of asking for application to repaint screen */
-		draw_hello();	/* draw hello world! */
-		break;
-		
-	case VM_MSG_INACTIVE:	/* the message of application state from active to inactive */
-		if( layer_hdl[0] != -1 )
-			vm_graphic_delete_layer(layer_hdl[0]);
-		
-		break;	
-	case VM_MSG_QUIT:		/* the message of quit application */
-		if( layer_hdl[0] != -1 )
-			vm_graphic_delete_layer(layer_hdl[0]);
-		
-		/* Release all resource */
-		vm_res_deinit();
-		break;	
-	}
-#endif
-}
-
-void handle_keyevt(VMINT event, VMINT keycode) {
-	/* press any key and return*/
-	if( layer_hdl[0] != -1 )
-	{
-		vm_graphic_delete_layer(layer_hdl[0]);
-		layer_hdl[0] = -1;
-	}
-	
-	vm_exit_app();		/* quit application */
-}
-
-void handle_penevt(VMINT event, VMINT x, VMINT y)
+static void setcol(VMUINT c)
 {
-	/* touch and return*/
-	if( layer_hdl[0] != -1 )
-	{
-		vm_graphic_delete_layer(layer_hdl[0]);
-		layer_hdl[0] = -1;
-	}
-	
-	vm_exit_app();		/* quit application */
+	g_color.vm_color_565 = c;
+	vm_graphic_setcolor(&g_color);
 }
 
-short s[] = {'H','e','l','l','o',',',' ','Q','o','d','e','r','!',0};
+static void hline(VMINT x, VMINT y, VMINT w)
+{
+	vm_graphic_fill_rect_ex(layer_hdl[0], x, y, w, 1);
+}
 
-static void draw_hello(void) {
-	int x;						/* string's x coordinate */
-	int y;						/* string's y coordinate */
-	int wstr_len;				/* string's length */
-	vm_graphic_color color;		/* use to set screen and text color */
-	
-	/* calculate string length*/ 
-	wstr_len = vm_graphic_get_string_width(s);
+static void thick_line(VMINT x0, VMINT y0, VMINT x1, VMINT y1, VMINT t)
+{
+	VMINT i, o = t / 2;
+	for (i = -o; i <= o; i++)
+		vm_graphic_line_ex(layer_hdl[0], x0 + i, y0, x1 + i, y1);
+}
 
-	/* calculate string's coordinate */
-	x = (vm_graphic_get_screen_width() - wstr_len) / 2;
-	y = (vm_graphic_get_screen_height() - vm_graphic_get_character_height()) / 2;
-	
-	/* set screen color */
-	color.vm_color_565 = VM_COLOR_WHITE;
-	vm_graphic_setcolor(&color);
-	
-	/* fill rect with screen color */
-	vm_graphic_fill_rect_ex(layer_hdl[0], 0, 0, vm_graphic_get_screen_width(), vm_graphic_get_screen_height());
-	
-	/* set text color */
-	color.vm_color_565 = VM_COLOR_BLUE;
-	vm_graphic_setcolor(&color);
-	
-	/* output text to layer */
-	vm_graphic_textout_to_layer(layer_hdl[0],x, y, s, wstr_len);
-	
-	/* flush the screen with text data */
+static void ring(VMINT cx, VMINT cy, VMINT r)
+{
+	vm_graphic_ellipse_ex(layer_hdl[0], cx - r, cy - r, r * 2, r * 2);
+	vm_graphic_ellipse_ex(layer_hdl[0], cx - r + 1, cy - r + 1, r * 2 - 2, r * 2 - 2);
+}
+
+static void hand(VMINT cx, VMINT cy, VMINT angle_x10, VMINT len, VMINT t, VMUINT c)
+{
+	float a = angle_x10 * 0.1f * PI_ / 180.0f;
+	VMINT x1 = cx + (VMINT)(sinf(a) * len);
+	VMINT y1 = cy - (VMINT)(cosf(a) * len);
+	setcol(c);
+	thick_line(cx, cy - 2, x1, y1, t);
+}
+
+static void put_time(VMINT cx, VMINT cy, VMINT hour, VMINT min, VMINT day, VMINT mon)
+{
+	short t[8];
+	VMINT tw, i;
+	char hh[3], mm[3], dd[3], mo[3];
+	VMINT y = cy;
+
+	hh[0] = '0' + hour / 10; hh[1] = '0' + hour % 10; hh[2] = 0;
+	mm[0] = '0' + min / 10;  mm[1] = '0' + min % 10;  mm[2] = 0;
+	dd[0] = '0' + day / 10;  dd[1] = '0' + day % 10;  dd[2] = 0;
+	mo[0] = '0' + mon / 10;  mo[1] = '0' + mon % 10;  mo[2] = 0;
+
+	vm_graphic_set_font(VM_LARGE_FONT);
+	t[0] = hh[0]; t[1] = hh[1]; t[2] = ':'; t[3] = mm[0]; t[4] = mm[1]; t[5] = 0;
+	tw = vm_graphic_get_string_width(t);
+	setcol(0xFFFF);
+	vm_graphic_textout_to_layer(layer_hdl[0], cx - tw / 2, y, t, 5);
+
+	vm_graphic_set_font(VM_SMALL_FONT);
+	t[0] = dd[0]; t[1] = dd[1]; t[2] = '/'; t[3] = mo[0]; t[4] = mo[1]; t[5] = 0;
+	tw = vm_graphic_get_string_width(t);
+	setcol(0x7BEF);
+	vm_graphic_textout_to_layer(layer_hdl[0], cx - tw / 2, y + 34, t, 5);
+
+	t[0] = 'L'; t[1] = 'U'; t[2] = 'I'; t[3] = 'Z'; t[4] = 0;
+	tw = vm_graphic_get_string_width(t);
+	setcol(0x07FF);
+	vm_graphic_textout_to_layer(layer_hdl[0], cx - tw / 2, y + 52, t, 4);
+}
+
+static void face_draw(void)
+{
+	vm_time_t now;
+	VMINT cx, cy, r, i, ang, len;
+
+	if (layer_hdl[0] == -1)
+		return;
+
+	scr_w = vm_graphic_get_screen_width();
+	scr_h = vm_graphic_get_screen_height();
+	cx = scr_w / 2;
+	cy = scr_h / 2;
+	r = (scr_w < scr_h ? scr_w : scr_h) / 2 - 3;
+
+	setcol(0x0000);
+	vm_graphic_fill_rect_ex(layer_hdl[0], 0, 0, scr_w, scr_h);
+
+	setcol(0x2945);
+	ring(cx, cy, r);
+	setcol(0x18E3);
+	ring(cx, cy, r - 8);
+
+	for (i = 0; i < 12; i++) {
+		float a = i * 30.0f * PI_ / 180.0f;
+		VMINT x0 = cx + (VMINT)(sinf(a) * (r - 16));
+		VMINT y0 = cy - (VMINT)(cosf(a) * (r - 16));
+		VMINT x1 = cx + (VMINT)(sinf(a) * (r - 24));
+		VMINT y1 = cy - (VMINT)(cosf(a) * (r - 24));
+		if (i % 3 == 0)
+			setcol(0xFFFF);
+		else
+			setcol(0x6B4D);
+		thick_line(x0, y0, x1, y1, (i % 3 == 0) ? 3 : 1);
+	}
+
+	if (vm_get_time(&now) != 0) {
+		now.hour = 0; now.min = 0; now.sec = 0;
+		now.day = 1; now.mon = 1;
+	}
+
+	ang = (now.hour % 12) * 300 + now.min * 5;      /* decimos de grau */
+	hand(cx, cy, ang, r * 50 / 100, 5, 0xFFFF);
+
+	len = now.sec < 0 ? 0 : now.sec;
+	ang = now.min * 60 + len;
+	hand(cx, cy, ang, r * 72 / 100, 3, 0x07FF);
+
+	hand(cx, cy, now.sec * 60, r * 84 / 100, 1, 0xF800);
+
+	setcol(0xFFFF);
+	vm_graphic_fill_ellipse_ex(layer_hdl[0], cx - 3, cy - 3, 7, 7);
+
+	put_time(cx, cy + r * 45 / 100, now.hour, now.min, now.day, now.mon);
+
 	vm_graphic_flush_layer(layer_hdl, 1);
 }
 
+static void tick(VMINT tid)
+{
+	(void)tid;
+	face_draw();
+}
+
+static void handle_sysevt(VMINT message, VMINT param)
+{
+	(void)param;
+	switch (message) {
+	case VM_MSG_CREATE:
+		layer_hdl[0] = -1;
+		scr_w = vm_graphic_get_screen_width();
+		scr_h = vm_graphic_get_screen_height();
+		if (timer_id == -1)
+			timer_id = vm_create_timer(1000, tick);
+		break;
+	case VM_MSG_ACTIVE:
+	case VM_MSG_PAINT:
+		if (layer_hdl[0] == -1) {
+			layer_hdl[0] = vm_graphic_create_layer(0, 0, scr_w, scr_h, -1);
+			vm_graphic_set_clip(0, 0, scr_w, scr_h);
+		}
+		face_draw();
+		break;
+	case VM_MSG_HIDE:
+	case VM_MSG_INACTIVE:
+		if (layer_hdl[0] != -1) {
+			vm_graphic_delete_layer(layer_hdl[0]);
+			layer_hdl[0] = -1;
+		}
+		break;
+	case VM_MSG_QUIT:
+		if (timer_id != -1) {
+			vm_delete_timer(timer_id);
+			timer_id = -1;
+		}
+		if (layer_hdl[0] != -1) {
+			vm_graphic_delete_layer(layer_hdl[0]);
+			layer_hdl[0] = -1;
+		}
+		vm_res_deinit();
+		break;
+	}
+}
+
+static void handle_keyevt(VMINT event, VMINT keycode)
+{
+	(void)event;
+	(void)keycode;
+}
+
+static void handle_penevt(VMINT event, VMINT x, VMINT y)
+{
+	(void)event;
+	(void)x;
+	(void)y;
+}
+
+void vm_main(void)
+{
+	layer_hdl[0] = -1;
+	vm_reg_sysevt_callback(handle_sysevt);
+	vm_reg_keyboard_callback(handle_keyevt);
+	vm_reg_pen_callback(handle_penevt);
+	vm_res_init();
+}
