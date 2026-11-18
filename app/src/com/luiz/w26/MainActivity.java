@@ -21,6 +21,7 @@ import android.widget.TextView;
 public class MainActivity extends Activity implements W26.Listener {
     private static final String DEFAULT_MAC = "C2:BA:45:15:C8:F9";
     private static final String DEFAULT_CLASSIC = "06:87:E6:0C:62:61";
+    private static final int REQ_VXP = 7;
 
     private TextView stateView;
     private TextView logView;
@@ -29,6 +30,7 @@ public class MainActivity extends Activity implements W26.Listener {
     private EditText classicView;
     private EditText tjdCmd;
     private EditText mtkHex;
+    private EditText vxpName;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -86,7 +88,15 @@ public class MainActivity extends Activity implements W26.Listener {
                         "Qoder", "Teste do celular", "Se voce esta lendo isso, funcionou!"))));
 
         root.addView(row(
-                button("MREE listar", v -> W26.get().mreeList()),
+                button("Instalar VXP...", v -> {
+                    Intent i = new Intent(Intent.ACTION_OPEN_DOCUMENT);
+                    i.addCategory(Intent.CATEGORY_OPENABLE);
+                    i.setType("*/*");
+                    startActivityForResult(i, REQ_VXP);
+                }),
+                button("MREE listar", v -> W26.get().mreeList())));
+
+        root.addView(row(
                 button("Instalar face.vxp", v -> {
                     try {
                         W26.get().mreeInstall("face.vxp", asset("face.vxp"));
@@ -94,12 +104,18 @@ public class MainActivity extends Activity implements W26.Listener {
                         log("asset: " + e.getMessage());
                     }
                 }),
-                button("MREE apagar", v -> W26.get().mreeUninstall("face.vxp"))));
+                button("MREE apagar", v -> W26.get().mreeUninstall(vxpName.getText().toString().trim()))));
+
+        vxpName = new EditText(this);
+        vxpName.setText("face.vxp");
+        vxpName.setTextSize(13);
+        vxpName.setSingleLine(true);
+        root.addView(vxpName);
 
         root.addView(row(
-                button("MREE status", v -> W26.get().mreeStatus("face.vxp")),
-                button("MREE perms", v -> W26.get().mreePermissions("face.vxp")),
-                button("MREE excluir", v -> W26.get().mreeDelete("face.vxp"))));
+                button("MREE status", v -> W26.get().mreeStatus(vxpName.getText().toString().trim())),
+                button("MREE perms", v -> W26.get().mreePermissions(vxpName.getText().toString().trim())),
+                button("MREE excluir", v -> W26.get().mreeDelete(vxpName.getText().toString().trim()))));
 
         root.addView(row(
                 button("Acesso a notificacoes", v -> startActivity(
@@ -196,6 +212,34 @@ public class MainActivity extends Activity implements W26.Listener {
                 && checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED)
             want.add(Manifest.permission.POST_NOTIFICATIONS);
         if (!want.isEmpty()) requestPermissions(want.toArray(new String[0]), 1);
+    }
+
+    @Override
+    protected void onActivityResult(int req, int res, Intent data) {
+        super.onActivityResult(req, res, data);
+        if (req != REQ_VXP || res != RESULT_OK || data == null || data.getData() == null) return;
+        android.net.Uri uri = data.getData();
+        String name = "app.vxp";
+        try (android.database.Cursor c = getContentResolver().query(uri, null, null, null, null)) {
+            if (c != null && c.moveToFirst()) {
+                int i = c.getColumnIndex(android.provider.OpenableColumns.DISPLAY_NAME);
+                if (i >= 0 && c.getString(i) != null) name = c.getString(i);
+            }
+        } catch (Exception ignored) {
+        }
+        name = name.substring(name.lastIndexOf('/') + 1);
+        try (java.io.InputStream in = getContentResolver().openInputStream(uri)) {
+            java.io.ByteArrayOutputStream o = new java.io.ByteArrayOutputStream();
+            byte[] b = new byte[8192];
+            int r;
+            while ((r = in.read(b)) > 0) o.write(b, 0, r);
+            byte[] vxp = o.toByteArray();
+            log("VXP " + name + " (" + vxp.length + " bytes) -> " + (char) vxp[0] + (char) vxp[1] + (char) vxp[2] + (char) vxp[3]);
+            if (vxpName != null) vxpName.setText(name);
+            W26.get().mreeInstall(name, vxp);
+        } catch (Exception e) {
+            log("VXP erro: " + e.getMessage());
+        }
     }
 
     @Override
