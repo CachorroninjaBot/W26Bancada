@@ -11,5 +11,6 @@
     "required_ram": 512,
     "imsi": "1234567890",
     "run_in_background": 0,
-    "auto_start": 0
+    "auto_start": 0,
+    "watch_face": 1
 }

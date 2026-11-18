@@ -16,6 +16,8 @@ with open(sys.argv[1], 'rb') as axf_file:
 with open("manifest.json", 'r') as config_file:
     config = json.loads(config_file.read())
 
+watch_face = 1 if config.get("watch_face") else 0
+
 # Find the location of the resources in the AXF file by searching for bytes
 # I know this is definitely not the best way, but it will do for now
 res_offset = axf.find(bytes([0x41,0x70,0x70,0x4C,0x6F,0x67,0x6F,0x2E,0x69,0x6D,0x67,0x00,0x30,0x00,0x00,0x00,0xE0]))
@@ -167,10 +169,11 @@ add_int_tag(0x2a, 0)  # not a VPP file
 add_int_tag(0x2c, 0)  # doesn't use push notifications
 add_int_tag(0x2d, 0xFFFFFFFF)  # push notification ID (unused)
 add_string_tag(0x2e, "")  # push notification sender email
-add_int_tag(0x2f, 0)  # doesn't use AB2 formant image (what)
-add_int_tag(0x31, 0)  # doesn't use advanced icon format
+add_int_tag(0x2f, 1 if watch_face else 0)  # usa imagem AB2 (icone/preview de mostrador)
+add_int_tag(0x31, 1 if watch_face else 0)  # usa formato de icone avancado
 add_int_tag(0x32, 1 if config.get("auto_start") else 0)  # auto-start no boot (mostrador)
-add_int_tag(0x33, 1)  # cria atalho do app ao instalar
+add_int_tag(0x33, 0 if watch_face else 1)  # cria atalho do app ao instalar
+add_int_tag(0x34, 1 if watch_face else 0)  # e um mostrador de relogio (face.vxp original tem 1)
 
 append_int32(0)  # 8 reserved bytes
 append_int32(0)
