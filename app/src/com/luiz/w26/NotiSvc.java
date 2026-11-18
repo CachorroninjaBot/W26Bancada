@@ -15,8 +15,11 @@ public class NotiSvc extends NotificationListenerService {
     public void onNotificationPosted(StatusBarNotification sbn) {
         if (sbn == null || sbn.getPackageName().equals(getPackageName())) return;
         if (!Prefs.notifEnabled(this)) return;
+        String pkg = sbn.getPackageName();
+        if (Prefs.notifBlocked(this).contains(pkg)) return;
         Notification n = sbn.getNotification();
-        if (n == null || (n.flags & Notification.FLAG_ONGOING_EVENT) != 0) return;
+        if (n == null) return;
+        if (Prefs.notifSkipSystem(this) && isSystemNoise(pkg, n)) return;
         Bundle ex = n.extras;
         CharSequence t = ex.getCharSequence(Notification.EXTRA_TITLE);
         CharSequence x = ex.getCharSequence(Notification.EXTRA_TEXT);
@@ -31,12 +34,23 @@ public class NotiSvc extends NotificationListenerService {
         String app;
         try {
             PackageManager pm = getPackageManager();
-            app = pm.getApplicationLabel(pm.getApplicationInfo(sbn.getPackageName(), 0)).toString();
+            app = pm.getApplicationLabel(pm.getApplicationInfo(pkg, 0)).toString();
         } catch (Exception e) {
-            app = sbn.getPackageName();
+            app = pkg;
         }
         W26.get().notifyWatch(app,
                 t == null ? app : t.toString(),
                 x == null ? "" : x.toString());
+    }
+
+    /** Carga, midia (play/pause/stop), progresso e avisos do sistema nao devem vibrar o relogio. */
+    private static boolean isSystemNoise(String pkg, Notification n) {
+        if ((n.flags & Notification.FLAG_ONGOING_EVENT) != 0) return true;
+        if (n.extras != null && n.extras.containsKey(Notification.EXTRA_MEDIA_SESSION)) return true;
+        String cat = n.category;
+        if (Notification.CATEGORY_SERVICE.equals(cat) || Notification.CATEGORY_TRANSPORT.equals(cat)
+                || Notification.CATEGORY_PROGRESS.equals(cat) || Notification.CATEGORY_SYSTEM.equals(cat)
+                || Notification.CATEGORY_STATUS.equals(cat)) return true;
+        return "android".equals(pkg) || "com.android.systemui".equals(pkg);
     }
 }

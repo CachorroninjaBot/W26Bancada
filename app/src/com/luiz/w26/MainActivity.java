@@ -61,7 +61,8 @@ public class MainActivity extends Activity implements W26.Listener {
     private static final int MUTED = 0xFF7E8CA0;
     private static final int DARK = 0xFF080C12;
 
-    private static final int TAB_HOME = 0, TAB_DEVICE = 1, TAB_DIAL = 2, TAB_SETTINGS = 3, TAB_CONSOLE = 4;
+    private static final int TAB_HOME = 0, TAB_DEVICE = 1, TAB_DIAL = 2, TAB_SETTINGS = 3,
+            TAB_NOTIF = 4, TAB_CONSOLE = 5, NUM_TABS = 6;
 
     private TextView stateView;
     private TextView watchStateView;
@@ -83,13 +84,16 @@ public class MainActivity extends Activity implements W26.Listener {
     private TextView faceInfo;
     private Switch autoSyncSwitch;
     private Switch notifSwitch;
+    private Switch skipSystemSwitch;
+    private LinearLayout notifAppList;
+    private boolean notifAppsBuilt;
     private Ring watchRing;
 
     private FrameLayout pages;
-    private final View[] pageViews = new View[5];
-    private final Icon[] tabIcons = new Icon[5];
-    private final TextView[] tabLabels = new TextView[5];
-    private final LinearLayout[] tabButtons = new LinearLayout[5];
+    private final View[] pageViews = new View[NUM_TABS];
+    private final Icon[] tabIcons = new Icon[NUM_TABS];
+    private final TextView[] tabLabels = new TextView[NUM_TABS];
+    private final LinearLayout[] tabButtons = new LinearLayout[NUM_TABS];
     private int currentTab = -1;
 
     private final Handler ui = new Handler(Looper.getMainLooper());
@@ -145,6 +149,7 @@ public class MainActivity extends Activity implements W26.Listener {
         pageViews[TAB_DEVICE] = pageDevice();
         pageViews[TAB_DIAL] = pageDial();
         pageViews[TAB_SETTINGS] = pageSettings();
+        pageViews[TAB_NOTIF] = pageNotif();
         pageViews[TAB_CONSOLE] = pageConsole();
         for (View v : pageViews) {
             v.setVisibility(View.GONE);
@@ -202,9 +207,9 @@ public class MainActivity extends Activity implements W26.Listener {
         View divider = new View(this);
         divider.setBackgroundColor(STROKE);
 
-        String[] labels = {"Início", "Dispositivo", "Mostradores", "Ajustes", "Console"};
-        int[] icons = {Icon.HOME, Icon.BT, Icon.DIAL, Icon.SLIDERS, Icon.TERMINAL};
-        for (int i = 0; i < 5; i++) {
+        String[] labels = {"Início", "Dispositivo", "Mostradores", "Ajustes", "Notif.", "Console"};
+        int[] icons = {Icon.HOME, Icon.BT, Icon.DIAL, Icon.SLIDERS, Icon.BELL, Icon.TERMINAL};
+        for (int i = 0; i < NUM_TABS; i++) {
             final int idx = i;
             LinearLayout tab = new LinearLayout(this);
             tab.setOrientation(LinearLayout.VERTICAL);
@@ -239,7 +244,8 @@ public class MainActivity extends Activity implements W26.Listener {
     private void selectTab(int idx) {
         if (idx == currentTab) return;
         currentTab = idx;
-        for (int i = 0; i < 5; i++) {
+        if (idx == TAB_NOTIF && !notifAppsBuilt) buildNotifApps();
+        for (int i = 0; i < NUM_TABS; i++) {
             pageViews[i].setVisibility(i == idx ? View.VISIBLE : View.GONE);
             boolean sel = i == idx;
             tabIcons[i].setColor(sel ? ACCENT : MUTED);
@@ -338,31 +344,9 @@ public class MainActivity extends Activity implements W26.Listener {
         c.addView(row(statTile("Bateria celular", phoneBattView), statTile("Última sync", lastSyncView)));
         c.addView(row(statTile("GPS", gpsView), statTile("Notificações", notifView)));
 
-        // Atalho mostrador
-        LinearLayout promo = card();
-        promo.setOrientation(LinearLayout.HORIZONTAL);
-        promo.setGravity(Gravity.CENTER_VERTICAL);
-        ImageView pi = icon(Icon.DIAL, ACCENT, 30);
-        LinearLayout.LayoutParams pilp = new LinearLayout.LayoutParams(dp(30), dp(30));
-        pilp.rightMargin = dp(14);
-        promo.addView(pi, pilp);
-        LinearLayout pt = new LinearLayout(this);
-        pt.setOrientation(LinearLayout.VERTICAL);
-        TextView pt1 = new TextView(this);
-        pt1.setText("Mostrador digital");
-        pt1.setTextSize(15);
-        pt1.setTextColor(TEXT);
-        pt1.setTypeface(Typeface.DEFAULT_BOLD);
-        pt.addView(pt1);
-        TextView pt2 = new TextView(this);
-        pt2.setText("Fundos prontos + estatísticas nativas");
-        pt2.setTextSize(11);
-        pt2.setTextColor(MUTED);
-        pt.addView(pt2);
-        promo.addView(pt, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
-        promo.addView(icon(Icon.CHEVRON, MUTED, 20), new LinearLayout.LayoutParams(dp(20), dp(20)));
-        promo.setOnClickListener(v -> selectTab(TAB_DIAL));
-        c.addView(promo);
+        // Atalhos
+        c.addView(linkCard(Icon.DIAL, "Mostrador digital", "Fundos prontos + estatísticas nativas", TAB_DIAL));
+        c.addView(linkCard(Icon.BELL, "Notificações", "Escolha os apps e corte carga/mídia", TAB_NOTIF));
 
         return scroll(c);
     }
@@ -481,17 +465,6 @@ public class MainActivity extends Activity implements W26.Listener {
         autoSyncSwitch = makeSwitch(Prefs.autoSync(this));
         autoSyncSwitch.setOnCheckedChangeListener((b, checked) -> Prefs.setAutoSync(this, checked));
         sync.addView(toggleRow("Hora automática ao conectar", autoSyncSwitch));
-        notifSwitch = makeSwitch(Prefs.notifEnabled(this));
-        notifSwitch.setOnCheckedChangeListener((b, checked) -> {
-            Prefs.setNotifEnabled(this, checked);
-            refreshStatus();
-        });
-        sync.addView(toggleRow("Encaminhar notificações", notifSwitch));
-        notifAccessView = new TextView(this);
-        notifAccessView.setTextSize(11);
-        notifAccessView.setTextColor(MUTED);
-        notifAccessView.setPadding(0, dp(2), 0, dp(6));
-        sync.addView(notifAccessView);
         sync.addView(row(
                 primaryBtn("Sincronizar agora", v -> {
                     W26.get().syncTime();
@@ -500,12 +473,7 @@ public class MainActivity extends Activity implements W26.Listener {
                     refreshStatus();
                     log("sync: hora + bateria pedidos");
                 }),
-                ghostBtn("Acesso notificações", v -> startActivity(
-                        new Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS)))));
-        sync.addView(row(
-                ghostBtn("Bateria do relógio", v -> W26.get().battery()),
-                ghostBtn("Notificação teste", v -> W26.get().notifyWatch(
-                        "W26", "Teste do celular", "Se você está lendo isso, funcionou!"))));
+                ghostBtn("Bateria do relógio", v -> W26.get().battery())));
         sync.addView(row(
                 ghostBtn("Testar alerta celular", v -> alertPhone()),
                 ghostBtn("Enviar clima", v -> Weather.fetchAndPush(this))));
@@ -546,6 +514,112 @@ public class MainActivity extends Activity implements W26.Listener {
         c.addView(find);
 
         return scroll(c);
+    }
+
+    // ---- pagina: NOTIFICACOES (filtro por app) ----
+
+    private View pageNotif() {
+        LinearLayout c = pageContainer();
+
+        LinearLayout f = card();
+        f.addView(sectionTitle("Notificações do celular"));
+        notifSwitch = makeSwitch(Prefs.notifEnabled(this));
+        notifSwitch.setOnCheckedChangeListener((b, checked) -> {
+            Prefs.setNotifEnabled(this, checked);
+            refreshStatus();
+        });
+        f.addView(toggleRow("Encaminhar notificações", notifSwitch));
+        skipSystemSwitch = makeSwitch(Prefs.notifSkipSystem(this));
+        skipSystemSwitch.setOnCheckedChangeListener((b, checked) -> Prefs.setNotifSkipSystem(this, checked));
+        f.addView(toggleRow("Ignorar carga, mídia e progresso", skipSystemSwitch));
+        notifAccessView = new TextView(this);
+        notifAccessView.setTextSize(11);
+        notifAccessView.setTextColor(MUTED);
+        notifAccessView.setPadding(0, dp(4), 0, dp(6));
+        f.addView(notifAccessView);
+        f.addView(row(
+                ghostBtn("Acesso notificações", v -> startActivity(
+                        new Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS))),
+                ghostBtn("Notificação teste", v -> W26.get().notifyWatch(
+                        "W26", "Teste do celular", "Se você está lendo isso, funcionou!"))));
+        c.addView(f);
+
+        LinearLayout apps = card();
+        apps.addView(sectionTitle("Apps que o relógio lê"));
+        TextView note = new TextView(this);
+        note.setText("Desligue os apps que não devem vibrar no relógio. O filtro acima já corta "
+                + "avisos de carga, mídia (play/pause) e progresso do sistema.");
+        note.setTextSize(12);
+        note.setTextColor(MUTED);
+        note.setLineSpacing(dp(2), 1f);
+        note.setPadding(0, 0, 0, dp(8));
+        apps.addView(note);
+        notifAppList = new LinearLayout(this);
+        notifAppList.setOrientation(LinearLayout.VERTICAL);
+        apps.addView(notifAppList);
+        c.addView(apps);
+
+        return scroll(c);
+    }
+
+    private void buildNotifApps() {
+        notifAppsBuilt = true;
+        PackageManager pm = getPackageManager();
+        Intent main = new Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_LAUNCHER);
+        java.util.Map<String, android.content.pm.ApplicationInfo> map = new java.util.HashMap<>();
+        for (android.content.pm.ResolveInfo ri : pm.queryIntentActivities(main, 0)) {
+            android.content.pm.ApplicationInfo ai = ri.activityInfo.applicationInfo;
+            if (ai.packageName.equals(getPackageName())) continue;
+            map.put(ai.packageName, ai);
+        }
+        java.util.List<android.content.pm.ApplicationInfo> list = new java.util.ArrayList<>(map.values());
+        java.util.Collections.sort(list, (a, b) -> label(pm, a).compareToIgnoreCase(label(pm, b)));
+        java.util.Set<String> blocked = Prefs.notifBlocked(this);
+        for (android.content.pm.ApplicationInfo ai : list)
+            notifAppList.addView(appRow(pm, ai, !blocked.contains(ai.packageName)));
+    }
+
+    private String label(PackageManager pm, android.content.pm.ApplicationInfo ai) {
+        try {
+            return pm.getApplicationLabel(ai).toString();
+        } catch (Exception e) {
+            return ai.packageName;
+        }
+    }
+
+    private View appRow(PackageManager pm, android.content.pm.ApplicationInfo ai, boolean allowed) {
+        LinearLayout r = new LinearLayout(this);
+        r.setOrientation(LinearLayout.HORIZONTAL);
+        r.setGravity(Gravity.CENTER_VERTICAL);
+        r.setPadding(0, dp(7), 0, dp(7));
+        ImageView iv = new ImageView(this);
+        try {
+            iv.setImageDrawable(pm.getApplicationIcon(ai));
+        } catch (Exception e) {
+            iv.setImageDrawable(new Icon(Icon.PLUS, MUTED, getResources().getDisplayMetrics().density));
+        }
+        LinearLayout.LayoutParams ilp = new LinearLayout.LayoutParams(dp(34), dp(34));
+        ilp.rightMargin = dp(12);
+        r.addView(iv, ilp);
+        LinearLayout t = new LinearLayout(this);
+        t.setOrientation(LinearLayout.VERTICAL);
+        TextView name = new TextView(this);
+        name.setText(label(pm, ai));
+        name.setTextSize(14);
+        name.setTextColor(TEXT);
+        name.setSingleLine(true);
+        t.addView(name);
+        TextView pkg = new TextView(this);
+        pkg.setText(ai.packageName);
+        pkg.setTextSize(10);
+        pkg.setTextColor(MUTED);
+        pkg.setSingleLine(true);
+        t.addView(pkg);
+        r.addView(t, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
+        Switch sw = makeSwitch(allowed);
+        sw.setOnCheckedChangeListener((b, checked) -> Prefs.setNotifBlocked(this, ai.packageName, !checked));
+        r.addView(sw);
+        return r;
     }
 
     // ---- pagina: CONSOLE (protocolo + log) ----
@@ -836,6 +910,32 @@ public class MainActivity extends Activity implements W26.Listener {
         llp.topMargin = dp(8);
         t.addView(lab, llp);
         return t;
+    }
+
+    private View linkCard(int iconKind, String title, String sub, int tab) {
+        LinearLayout p = card();
+        p.setOrientation(LinearLayout.HORIZONTAL);
+        p.setGravity(Gravity.CENTER_VERTICAL);
+        LinearLayout.LayoutParams ilp = new LinearLayout.LayoutParams(dp(30), dp(30));
+        ilp.rightMargin = dp(14);
+        p.addView(icon(iconKind, ACCENT, 30), ilp);
+        LinearLayout t = new LinearLayout(this);
+        t.setOrientation(LinearLayout.VERTICAL);
+        TextView t1 = new TextView(this);
+        t1.setText(title);
+        t1.setTextSize(15);
+        t1.setTextColor(TEXT);
+        t1.setTypeface(Typeface.DEFAULT_BOLD);
+        t.addView(t1);
+        TextView t2 = new TextView(this);
+        t2.setText(sub);
+        t2.setTextSize(11);
+        t2.setTextColor(MUTED);
+        t.addView(t2);
+        p.addView(t, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
+        p.addView(icon(Icon.CHEVRON, MUTED, 20), new LinearLayout.LayoutParams(dp(20), dp(20)));
+        p.setOnClickListener(v -> selectTab(tab));
+        return p;
     }
 
     private View statTile(String label, TextView value) {

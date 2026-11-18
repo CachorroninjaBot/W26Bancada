@@ -55,8 +55,8 @@ MTK e `L4Comm.BrltWallpaperPush` (caminho de wallpaper do app oficial).
 - `app/src/com/luiz/w26/Finder.java` — ultima posicao GPS do celular + mapa + alerta.
 - `app/src/com/luiz/w26/Prefs.java` — preferencias de sync (hora auto, notificacoes, ultima sync).
 - `app/src/com/luiz/w26/Weather.java` — clima Open-Meteo (sem chave) -> `X0,WEATHER`.
-- `app/src/com/luiz/w26/NotiSvc.java` — listener que encaminha notificacoes (respeita o toggle).
-- `app/src/com/luiz/w26/MainActivity.java` — UI estilo Da Fit: dashboard + barra de 5 abas (Inicio, Dispositivo, Mostradores, Ajustes, Console).
+- `app/src/com/luiz/w26/NotiSvc.java` — listener que encaminha notificacoes: filtro por app (lista branca/preta) + corte de ruido do sistema (ongoing, midia/`EXTRA_MEDIA_SESSION`, categorias service/transport/progress/system/status, `android`/`systemui`).
+- `app/src/com/luiz/w26/MainActivity.java` — UI estilo Da Fit: dashboard + barra de 6 abas (Inicio, Dispositivo, Mostradores, Ajustes, Notif., Console).
 - `app/src/com/luiz/w26/Icon.java` — icones de linha desenhados em Canvas (tingiveis por estado), sem recursos XML.
 - `app/src/com/luiz/w26/Ring.java` — anel de progresso da bateria do relogio (trilho + arco).
 - `app/src/com/luiz/w26/FaceBuilder.java` — criador de mostrador DIGITAL (fundos pre-montados A/B do ronman, Configtbl oficial preservado).
@@ -66,9 +66,12 @@ MTK e `L4Comm.BrltWallpaperPush` (caminho de wallpaper do app oficial).
 
 Features (18/11): **interface redesenhada estilo Da Fit** — dashboard com hero card
 (gradient azul + anel de bateria do relogio), grade de acoes rapidas (sincronizar,
-achar relogio/celular, clima), tiles de estatisticas e barra inferior de 5 abas
-(Inicio/Dispositivo/Mostradores/Ajustes/Console); toda a UI e programatica (Canvas
-`Icon`/`Ring`, sem R/XML). Cards escuros com header de estado global; **finder** (GPS do celular ao conectar, mapa `geo:`, "Fazer vibrar" =
+achar relogio/celular, clima), tiles de estatisticas e barra inferior de 6 abas
+(Inicio/Dispositivo/Mostradores/Ajustes/Notif./Console); toda a UI e programatica (Canvas
+`Icon`/`Ring`, sem R/XML). **Filtro de notificacoes** na aba Notif.: toggle mestre,
+"Ignorar carga, midia e progresso" (corta o ruido do sistema que antes vibrava o
+relogio) e lista de apps instalados com liga/desliga por app (`Prefs.notifBlocked`);
+atalho na dashboard. Cards escuros com header de estado global; **finder** (GPS do celular ao conectar, mapa `geo:`, "Fazer vibrar" =
 `1802/2A06` + TJD FindDevice); **sync automatico** (hora ao conectar, bateria do
 relogio parseada de `X0,GET,7,<n>#` com remontagem de frames `#`, notificacoes com
 toggle + status do listener, refresh a cada 30 s); **encontrar celular** (watch manda

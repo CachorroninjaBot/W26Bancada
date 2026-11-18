@@ -35,4 +35,22 @@ public final class Prefs {
     public static void markSync(Context c) {
         p(c).edit().putLong("lastSync", System.currentTimeMillis()).apply();
     }
+
+    public static java.util.Set<String> notifBlocked(Context c) {
+        return new java.util.HashSet<>(p(c).getStringSet("notifBlocked", new java.util.HashSet<>()));
+    }
+
+    public static void setNotifBlocked(Context c, String pkg, boolean blocked) {
+        java.util.Set<String> s = notifBlocked(c);
+        if (blocked) s.add(pkg); else s.remove(pkg);
+        p(c).edit().putStringSet("notifBlocked", s).apply();
+    }
+
+    public static boolean notifSkipSystem(Context c) {
+        return p(c).getBoolean("notifSkipSystem", true);
+    }
+
+    public static void setNotifSkipSystem(Context c, boolean v) {
+        p(c).edit().putBoolean("notifSkipSystem", v).apply();
+    }
 }
