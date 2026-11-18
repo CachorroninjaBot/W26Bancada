@@ -1,0 +1,12 @@
+tmp/
+__pycache__/
+*.pyc
+app/build/
+app/dist/
+*.keystore
+*.apk
+*.zip
+*.log
+*.png
+*.pcapng
+*.etl
