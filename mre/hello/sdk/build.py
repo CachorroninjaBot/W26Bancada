@@ -154,7 +154,7 @@ add_int_tag(0x02, 0xFFFFFFFF)  # app ID
 add_int_tag(0x03, 1)  # index of key ID, whatever that is
 add_int_array_tag(0x06, [0, 0, 0, 0, 0, 0])  # license issue date (unused)
 add_int_array_tag(0x07, [0, 0, 0, 0, 0, 0])  # license expiry date
-add_int_tag(0x10, 0)  # resolution (not enforced)
+add_int_tag(0x10, (240 << 16) | 240)  # resolucao 240x240 (2 x int16)
 add_int_tag(0x11, 0x09C40000)  # engine version (00 00 C4 09 no formato oficial)
 add_int_tag(0x16, 1)  # input mode 1
 add_int_tag(0x1c, 0)  # doesn't support rotation

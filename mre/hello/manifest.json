@@ -1,8 +1,8 @@
 {
-    "name": "MyMREApp",
-    "vendor": "Vendor",
-    "app_name_multilang": ["NameEnglish", "NameChineseS", "NameChineseT"],
-    "description": "Example MRE application",
+    "name": "QoderTest",
+    "vendor": "Luiz",
+    "app_name_multilang": ["Qoder Test", "Qoder Test", "Qoder Test"],
+    "description": "Bancada W26: app MRE compilado por nos",
     "version": 1,
 
     "required_ram": 512,

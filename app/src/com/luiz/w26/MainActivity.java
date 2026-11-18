@@ -106,6 +106,16 @@ public class MainActivity extends Activity implements W26.Listener {
                 }),
                 button("MREE apagar", v -> W26.get().mreeUninstall(vxpName.getText().toString().trim()))));
 
+        root.addView(row(
+                button("MREE CTA", v -> W26.get().mreeCta()),
+                button("Instalar QoderTest", v -> {
+                    try {
+                        W26.get().mreeInstall("qodertest.vxp", asset("qodertest.vxp"));
+                    } catch (Exception e) {
+                        log("asset: " + e.getMessage());
+                    }
+                })));
+
         vxpName = new EditText(this);
         vxpName.setText("face.vxp");
         vxpName.setTextSize(13);

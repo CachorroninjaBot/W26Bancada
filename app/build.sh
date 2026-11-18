@@ -10,6 +10,12 @@ BT="$SDK/build-tools/36.0.0"
 
 rm -rf build && mkdir -p build/classes build/dex dist
 
+mkdir -p build/assets
+cp assets/* build/assets/
+if [ -f ../mre/hello/MyMREApp.vxp ]; then
+    cp ../mre/hello/MyMREApp.vxp build/assets/qodertest.vxp
+fi
+
 javac --release 11 -Xlint:-options -classpath "$AJ" -d build/classes \
     src/com/luiz/w26/*.java
 
@@ -18,7 +24,7 @@ D8="$BT/d8.bat"
 "$D8" --lib "$AJ" --min-api 26 --output build/dex build/classes/com/luiz/w26/*.class
 
 "$BT/aapt2" link -I "$AJ" --manifest AndroidManifest.xml \
-    -A assets \
+    -A build/assets \
     --min-sdk-version 26 --target-sdk-version 36 \
     -o build/base.apk
 

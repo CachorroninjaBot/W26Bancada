@@ -63,6 +63,7 @@ public final class W26 {
     private BluetoothGattCharacteristic mtkR;
     private BluetoothSocket spp;
     private volatile boolean sppUp;
+    private volatile boolean ctaSupported;
     private final Object sppLock = new Object();
     private Listener listener;
     private boolean writing;
@@ -346,7 +347,7 @@ public final class W26 {
         sendSpp(Mtk.cmd("SYNC REQV"));
         sendSpp(Mtk.cmd("SYNC " + t + " " + tz));
         sendSpp(Mtk.cmd("EXCD mtk_msctrl msctrl_apk 0 0 4 "));
-        sendSpp(Mtk.cmd("MREE mre_installer smartwatch 9 0 5 "));
+        mreeCta();
         sendSpp(Mtk.cmd("EXCD language mtk_language 1 0 5 "));
     }
 
@@ -427,6 +428,14 @@ public final class W26 {
                         if (i + jump + plen > b.length) break;
                         String reply = new String(b, i + jump, plen, StandardCharsets.US_ASCII).trim();
                         log("MRE resp: " + mreMeaning(reply));
+                        int rcode = mreCode(reply);
+                        if (rcode == 9) {
+                            ctaSupported = true;
+                            log("CTA confirmado: install aceita campo de permissoes");
+                        } else if (rcode == -109) {
+                            ctaSupported = false;
+                            log("CTA nao suportado por este firmware");
+                        }
                         jump += plen;
                     }
                 }
@@ -472,8 +481,17 @@ public final class W26 {
             "app ja instalado", "erro nas tags de icone/nome", "erro ao gravar info de app interno",
             "erro ao salvar icone", "erro ao gravar info do vxp"};
 
-    private static String mreMeaning(String reply) {
+    private static int mreCode(String reply) {
         String body = reply.substring("mre_installer ".length()).trim();
+        if (body.isEmpty()) return Integer.MIN_VALUE;
+        try {
+            return Integer.parseInt(body.split(" ")[0]);
+        } catch (NumberFormatException e) {
+            return Integer.MIN_VALUE;
+        }
+    }
+
+    private static String mreMeaning(String reply) {        String body = reply.substring("mre_installer ".length()).trim();
         if (body.isEmpty()) return reply;
         String codeStr = body.split(" ")[0];
         String rest = body.length() > codeStr.length() ? body.substring(codeStr.length()).trim() : "";
@@ -485,6 +503,7 @@ public final class W26 {
             return reply;
         }
         if (code == 1) meaning = "instalado com sucesso";
+        else if (code == 9) meaning = "CTA suportado";
         else if (code == -1) meaning = "desinstalado";
         else if (code == -2) meaning = "status do app";
         else if (code == -6) meaning = "arquivo excluido";
@@ -528,14 +547,26 @@ public final class W26 {
         mree(-6, 0, ("-6 " + name).getBytes(StandardCharsets.US_ASCII));
     }
 
+    public void mreeCta() {
+        mree(9, 0, "9 cta".getBytes(StandardCharsets.US_ASCII));
+    }
+
     public void mreeInstall(String name, byte[] vxp) {
+        mreeInstall(name, vxp, 0);
+    }
+
+    /** permMask: bitmask de permissoes (1=chamada, 2=SMS, 128=GPS, 32768=bluetooth...). */
+    public void mreeInstall(String name, byte[] vxp, int permMask) {
         if (!sppUp) {
             log("MRE precisa do SPP conectado");
             return;
         }
-        mree(0, 0, (vxp.length + " " + name).getBytes(StandardCharsets.US_ASCII));
+        String head = vxp.length + " " + name;
+        if (ctaSupported) head += " " + String.format("%08X", permMask);
+        mree(0, 0, head.getBytes(StandardCharsets.US_ASCII));
         mree(0, 1, vxp);
-        log("MRE: enviado " + name + " (" + vxp.length + " bytes)");
+        log("MRE: enviado " + name + " (" + vxp.length + " bytes"
+                + (ctaSupported ? ", perm " + String.format("%08X", permMask) : ", sem CTA") + ")");
     }
 
     // ---- sequencias ----

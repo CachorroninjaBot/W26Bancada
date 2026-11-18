@@ -196,7 +196,7 @@ void handle_penevt(VMINT event, VMINT x, VMINT y)
 	vm_exit_app();		/* quit application */
 }
 
-short s[] = {'H','e','l','l','o',',',' ','w','o','r','l','d','!',0};
+short s[] = {'H','e','l','l','o',',',' ','Q','o','d','e','r','!',0};
 
 static void draw_hello(void) {
 	int x;						/* string's x coordinate */
