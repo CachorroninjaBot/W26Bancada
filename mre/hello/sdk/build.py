@@ -160,7 +160,7 @@ add_int_tag(0x10, (240 << 16) | 240)  # resolucao 240x240 (2 x int16)
 add_int_tag(0x11, 0x09C40000)  # engine version (00 00 C4 09 no formato oficial)
 add_int_tag(0x16, 1)  # input mode 1
 add_int_tag(0x1c, 0)  # doesn't support rotation
-add_int_tag(0x21, 6)  # VXP compiled using GCC
+add_int_tag(0x21, config.get("compiler", 6))  # 6=GCC, 0=ADS
 add_int_tag(0x22, 0)  # not zlib compressed
 add_int_tag(0x23, 1)  # is encoding using UCS2
 add_int_tag(0x25, 0)  # system file max size

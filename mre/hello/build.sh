@@ -35,6 +35,12 @@ LINK_LIB="-lstdc++ $SDK/lib/*.a"
 # --no-dynamic-linker: binutils novo injeta PT_INTERP /usr/lib/ld.so.1, que nao existe no relogio
 LINK="-fno-threadsafe-statics -Wl,--gc-sections -fpic -fpcc-struct-return -disable-libstdcxx-verbose -pie -Wl,--no-dynamic-linker -lm -T $SDK/scat.ld"
 
+# MRE_EXEC=1: layout legado ADS (EXEC, ER_RO@0x8000, ER_RW/ER_ZI@0) para VMs antigas
+if [ "${MRE_EXEC:-0}" = "1" ]; then
+  SHARED="${SHARED/-fpic/-fno-pic}"
+  LINK="-fno-threadsafe-statics -Wl,--gc-sections -fno-pic -fpcc-struct-return -disable-libstdcxx-verbose -no-pie -nostartfiles -lm -T $SDK/scat_exec.ld"
+fi
+
 rm -rf build; mkdir -p build
 for f in src/*.c; do
   "$GCC" $SHARED -std=gnu89 -Wno-implicit-function-declaration -Wno-int-conversion -c "$f" -o "build/$(basename "${f%.c}").o"

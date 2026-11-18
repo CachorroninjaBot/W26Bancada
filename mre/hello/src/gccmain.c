@@ -64,7 +64,8 @@ void gcc_entry(unsigned int entry, unsigned int init_array_start, unsigned int c
 {
 	unsigned int i;
 	__init_array ptr;
-	vm_get_sym_entry = (vm_get_sym_entry_t)entry;
+	if (entry)
+		vm_get_sym_entry = (vm_get_sym_entry_t)entry;
 
 	if (init_array_start == 0)
 		init_array_start = (unsigned int)&__init_array_start,
