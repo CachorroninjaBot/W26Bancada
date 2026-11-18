@@ -46,48 +46,51 @@ public class MainActivity extends Activity implements W26.Listener {
         root.setOrientation(LinearLayout.VERTICAL);
         root.setPadding(pad, pad, pad, pad);
 
+        LinearLayout ctrl = new LinearLayout(this);
+        ctrl.setOrientation(LinearLayout.VERTICAL);
+
         TextView title = new TextView(this);
         title.setText("W26 — bancada de testes");
         title.setTextSize(20);
         title.setTextColor(Color.BLACK);
-        root.addView(title);
+        ctrl.addView(title);
 
         stateView = new TextView(this);
         stateView.setText("desconectado");
         stateView.setTextSize(15);
         stateView.setTextColor(Color.parseColor("#1565C0"));
-        root.addView(stateView);
+        ctrl.addView(stateView);
 
         macView = new EditText(this);
         macView.setText(DEFAULT_MAC);
         macView.setTextSize(13);
         macView.setSingleLine(true);
-        root.addView(macView);
+        ctrl.addView(macView);
 
         classicView = new EditText(this);
         classicView.setText(DEFAULT_CLASSIC);
         classicView.setTextSize(13);
         classicView.setSingleLine(true);
-        root.addView(classicView);
+        ctrl.addView(classicView);
 
-        root.addView(row(
+        ctrl.addView(row(
                 button("Conectar", v -> W26.get().connect(this, macView.getText().toString().trim())),
                 button("Desconectar", v -> W26.get().disconnect())));
 
-        root.addView(row(
+        ctrl.addView(row(
                 button("Conectar SPP", v -> W26.get().connectSpp(this, classicView.getText().toString().trim())),
                 button("SPP off", v -> W26.get().disconnectSpp())));
 
-        root.addView(row(
+        ctrl.addView(row(
                 button("Hora", v -> W26.get().syncTime()),
                 button("Bateria", v -> W26.get().battery()),
                 button("Encontrar", v -> W26.get().findDevice())));
 
-        root.addView(row(
+        ctrl.addView(row(
                 button("Notif. teste", v -> W26.get().notifyWatch(
                         "Qoder", "Teste do celular", "Se voce esta lendo isso, funcionou!"))));
 
-        root.addView(row(
+        ctrl.addView(row(
                 button("Instalar VXP...", v -> {
                     Intent i = new Intent(Intent.ACTION_OPEN_DOCUMENT);
                     i.addCategory(Intent.CATEGORY_OPENABLE);
@@ -96,7 +99,7 @@ public class MainActivity extends Activity implements W26.Listener {
                 }),
                 button("MREE listar", v -> W26.get().mreeList())));
 
-        root.addView(row(
+        ctrl.addView(row(
                 button("Instalar face.vxp", v -> {
                     try {
                         W26.get().mreeInstall("face.vxp", asset("face.vxp"));
@@ -106,7 +109,7 @@ public class MainActivity extends Activity implements W26.Listener {
                 }),
                 button("MREE apagar", v -> W26.get().mreeUninstall(vxpName.getText().toString().trim()))));
 
-        root.addView(row(
+        ctrl.addView(row(
                 button("MREE CTA", v -> W26.get().mreeCta()),
                 button("Instalar LuizFace", v -> {
                     try {
@@ -116,8 +119,16 @@ public class MainActivity extends Activity implements W26.Listener {
                     }
                 })));
 
-        root.addView(button("Limpar testes MRE (libera espaco)", v -> {
-            for (String n : new String[]{"qoder.vxp", "qoder2.vxp", "qodertest.vxp", "face2.vxp", "luizface.vxp"})
+        ctrl.addView(button("Instalar LuizApp (app normal)", v -> {
+            try {
+                W26.get().mreeInstall("luizapp.vxp", asset("luizapp.vxp"));
+            } catch (Exception e) {
+                log("asset: " + e.getMessage());
+            }
+        }));
+
+        ctrl.addView(button("Limpar testes MRE (libera espaco)", v -> {
+            for (String n : new String[]{"qoder.vxp", "qoder2.vxp", "qodertest.vxp", "face2.vxp", "luizface.vxp", "luizapp.vxp"})
                 W26.get().mreeUninstall(n);
             log("limpeza: uninstall pedido para os vxp de teste");
         }));
@@ -126,27 +137,27 @@ public class MainActivity extends Activity implements W26.Listener {
         vxpName.setText("face.vxp");
         vxpName.setTextSize(13);
         vxpName.setSingleLine(true);
-        root.addView(vxpName);
+        ctrl.addView(vxpName);
 
-        root.addView(row(
+        ctrl.addView(row(
                 button("MREE status", v -> W26.get().mreeStatus(vxpName.getText().toString().trim())),
                 button("MREE perms", v -> W26.get().mreePermissions(vxpName.getText().toString().trim())),
                 button("MREE excluir", v -> W26.get().mreeDelete(vxpName.getText().toString().trim()))));
 
-        root.addView(row(
+        ctrl.addView(row(
                 button("Acesso a notificacoes", v -> startActivity(
                         new Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS)))));
 
         TextView t1 = new TextView(this);
         t1.setText("Comando TJD (sem $LHBT, ex: X0,GET,7)");
         t1.setTextSize(12);
-        root.addView(t1);
+        ctrl.addView(t1);
         tjdCmd = new EditText(this);
         tjdCmd.setHint("X1,LINK");
         tjdCmd.setTextSize(13);
         tjdCmd.setSingleLine(true);
-        root.addView(tjdCmd);
-        root.addView(button("Enviar TJD", v -> {
+        ctrl.addView(tjdCmd);
+        ctrl.addView(button("Enviar TJD", v -> {
             String c = tjdCmd.getText().toString().trim();
             if (!c.isEmpty()) W26.get().sendTjd(c);
         }));
@@ -154,13 +165,13 @@ public class MainActivity extends Activity implements W26.Listener {
         TextView t2 = new TextView(this);
         t2.setText("Frame MTK cru (hex, sem F0F0F0F1) ou texto plain");
         t2.setTextSize(12);
-        root.addView(t2);
+        ctrl.addView(t2);
         mtkHex = new EditText(this);
         mtkHex.setHint("SYNC REQV");
         mtkHex.setTextSize(13);
         mtkHex.setSingleLine(true);
-        root.addView(mtkHex);
-        root.addView(row(
+        ctrl.addView(mtkHex);
+        ctrl.addView(row(
                 button("Enviar texto", v -> {
                     String s = mtkHex.getText().toString().trim();
                     if (!s.isEmpty()) W26.get().sendMtkAuto(Mtk.cmd(s));
@@ -178,7 +189,12 @@ public class MainActivity extends Activity implements W26.Listener {
                 })));
 
         Button clear = button("Limpar log", v -> logView.setText(""));
-        root.addView(clear);
+        ctrl.addView(clear);
+
+        ScrollView ctrlScroll = new ScrollView(this);
+        ctrlScroll.addView(ctrl);
+        root.addView(ctrlScroll, new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, 0, 2f));
 
         logView = new TextView(this);
         logView.setTextSize(11);

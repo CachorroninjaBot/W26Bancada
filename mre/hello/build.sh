@@ -26,7 +26,7 @@ OBJCOPY="$BIN/arm-none-eabi-objcopy"
 [ -x "$OBJCOPY.exe" ] && OBJCOPY="$OBJCOPY.exe"
 PY="$(command -v python3 || command -v python)"
 SDK=sdk
-APP=MyMREApp
+APP="${MRE_OUT:-MyMREApp}"
 
 INCLUDES="-I $SDK/include -I src"
 DEFINES="-D _MINIGUI_LIB_ -D _USE_MINIGUIENTRY -D _NOUNIX_ -D _FOR_WNC -D __MRE_SDK__ -D __MRE_VENUS_NORMAL__ -D __MMI_MAINLCD_240X320__ -D MRE -D GCC -D __MRE_COMPILER_GCC__"

@@ -42,7 +42,6 @@ static void handle_sysevt(VMINT message, VMINT param)
 		break;
 	case VM_MSG_QUIT:
 		if (layer_hdl[0] != -1) { vm_graphic_delete_layer(layer_hdl[0]); layer_hdl[0] = -1; }
-		vm_res_deinit();
 		break;
 	}
 }
@@ -51,5 +50,4 @@ void vm_main(void)
 {
 	layer_hdl[0] = -1;
 	vm_reg_sysevt_callback(handle_sysevt);
-	vm_res_init();
 }

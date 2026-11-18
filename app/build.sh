@@ -15,6 +15,9 @@ cp assets/* build/assets/
 if [ -f ../mre/hello/MyMREApp.vxp ]; then
     cp ../mre/hello/MyMREApp.vxp build/assets/luizface.vxp
 fi
+if [ -f ../mre/hello/MyMREApp_app.vxp ]; then
+    cp ../mre/hello/MyMREApp_app.vxp build/assets/luizapp.vxp
+fi
 
 javac --release 11 -Xlint:-options -classpath "$AJ" -d build/classes \
     src/com/luiz/w26/*.java

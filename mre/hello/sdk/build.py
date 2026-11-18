@@ -3,7 +3,7 @@
 #  MRE Makefile - resource insertion step (Python)
 # ______________________________________________________________________________
 # 
-import sys, struct, json
+import sys, struct, json, os
 
 def insert_int32(pos, value):
     global axf
@@ -16,7 +16,7 @@ with open(sys.argv[1], 'rb') as axf_file:
 with open("manifest.json", 'r') as config_file:
     config = json.loads(config_file.read())
 
-watch_face = 1 if config.get("watch_face") else 0
+watch_face = int(os.environ.get("MRE_FACE", 1 if config.get("watch_face") else 0))
 
 # Find the location of the resources in the AXF file by searching for bytes
 # I know this is definitely not the best way, but it will do for now
