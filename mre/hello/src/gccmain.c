@@ -12,6 +12,11 @@ typedef VMINT(*vm_get_sym_entry_t)(char* symbol);
 vm_get_sym_entry_t vm_get_sym_entry;
 typedef void (**__init_array) (void);
 
+/* Cabecalho que o loader MRE 2.0 (ADS) escreve em RAM base 0:
+   0x04 _saved_sp, 0x08 _init_param, 0x0c resolvedor vm_get_sym_entry.
+   Reservamos para nao colidir com nossos dados e ler o resolvedor de 0x0c. */
+__attribute__((section(".mre2_head"), used)) unsigned int _mre2_head[4];
+
 int __g_errno = 0;
 
 void* malloc(size_t size)
@@ -62,19 +67,21 @@ void* _calloc_r(struct _reent* unused, size_t count, size_t size)
 
 void gcc_entry(unsigned int entry, unsigned int init_array_start, unsigned int count)
 {
-	unsigned int i;
-	__init_array ptr;
-	if (entry)
+	/* MRE 3.x passa o resolvedor em r0 e init_array em r1/r2.
+	   MRE 2.0 (ADS) preenche os slots _vm_* por nome e/ou o resolvedor em 0x0c;
+	   r1/r2 nao sao init_array -> ignorar e usar nossos proprios simbolos. */
+	(void)init_array_start;
+	(void)count;
+	__init_array ptr, end;
+
+	if (!vm_get_sym_entry)
+		vm_get_sym_entry = *(vm_get_sym_entry_t*)&_mre2_head[3];
+	if (!vm_get_sym_entry && entry)
 		vm_get_sym_entry = (vm_get_sym_entry_t)entry;
 
-	if (init_array_start == 0)
-		init_array_start = (unsigned int)&__init_array_start,
-		count = ((unsigned int)&__init_array_end - (unsigned int)&__init_array_start) / 4;
-
-	ptr = (__init_array)init_array_start;
-	for (i = 1; i < count; i++)
-	{
-		ptr[i]();
-	}
+	ptr = (__init_array)&__init_array_start;
+	end = (__init_array)&__init_array_end;
+	for (; ptr < end; ptr++)
+		(*ptr)();
 	vm_main();
 }

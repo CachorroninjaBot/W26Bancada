@@ -27,6 +27,8 @@ SECTIONS
   . = 0x0;
   ER_RW :
   {
+    KEEP(*(.mre2_head))
+    . = ALIGN(4);
     *(.data .data.*)
     *(.got.plt) *(.igot.plt) *(.got) *(.igot)
     . = ALIGN(4);

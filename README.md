@@ -57,7 +57,8 @@ MTK e `L4Comm.BrltWallpaperPush` (caminho de wallpaper do app oficial).
 - `app/src/com/luiz/w26/Weather.java` — clima Open-Meteo (sem chave) -> `X0,WEATHER`.
 - `app/src/com/luiz/w26/NotiSvc.java` — listener que encaminha notificacoes (respeita o toggle).
 - `app/src/com/luiz/w26/MainActivity.java` — UI em secoes (status, conexao, sync, finder, MRE, console, log).
-- `app/assets/*.vxp` — mostradores embarcados (face, luizface, luizapp, luizface3=RES, ref=Longines).
+- `app/assets/*.vxp` — mostradores embarcados (face, luizface, luizapp, luizface3=RES,
+  luizface4=240, luizface5=MRE2, ronman=digital, ref=Longines).
 
 Features (18/11): UI escura em cards com header de estado + card de status dos dois
 dispositivos; **finder** (GPS do celular ao conectar, mapa `geo:`, "Fazer vibrar" =
@@ -132,9 +133,22 @@ MRE_EXEC=1 MRE_RES=sdk/resource_long.bin MRE_NOFIX=1 MRE_REFLOW=0x4b4c \
   recursos se chama `mre-2.0`; o SDK tem `MRE2.0.dll`). O toolchain GCC
   (mre-makefile) **só executa em MRE 3.x** — o README dele diz explicitamente
   "Running a compiled VXP on MRE <3.0 phones: doesn't work". Por isso o código
-  oficial ADS roda (desenha o fundo) e o nosso GCC fica preto sem nem vibrar:
-  `gcc_entry` espera o resolvedor `vm_get_sym_entry` em `r0`, convenção que a VM
-  2.0 não usa; toda chamada de API das libs `per*.a` passa por ele e crasha.
+  oficial ADS roda (desenha o fundo) e o nosso GCC ficava preto sem nem vibrar.
+- **Convenção de import ADS/MRE2 (engenharia reversa, 18/11):** os vxp ADS chamam
+  as APIs por *veneer* que lê um **slot de ponteiro nomeado** em RW/ZI
+  (`_vm_res_get_image`, `_vm_graphic_setcolor`, `_vm_graphic_fill_rect_ex`,
+  `_vm_reg_sysevt_callback`, …). Se o slot está nulo, o veneer cai no resolvedor
+  `vm_get_sym_entry` que o **loader deixa em endereço fixo 0x0c** (não em `r0`).
+  O loader resolve **por nome de símbolo** (os offsets variam por app). Os wrappers
+  GCC `per*.a` JÁ definem esses mesmos slots `_vm_*` + fallback `vm_get_sym_entry`.
+- **Bug do nosso entry (corrigido):** `gcc_entry` confiava em `r1/r2` como
+  `init_array` (convenção MRE3). No MRE2 `r1/r2` são lixo → chamava ponteiro lixo
+  ANTES do `vm_main` (por isso nem vibrava). Fix: ignorar `r1/r2` e usar
+  `__init_array_start/end` nossos; resolvedor na ordem slot-nomeado → 0x0c → `r0`;
+  cabeçalho `.mre2_head` reservado em RAM 0x00–0x0c (`scat_exec.ld`).
+  Teste: `LuizFaceMRE2.vxp` (asset `luizface5.vxp`, botão "LuizFace MRE2 (teste
+  CODIGO)") = recursos oficiais + código vermelho/vibração. Se vibrar/pintar →
+  código NOSSO roda no MRE2 → destrava apps novos e ponteiros por código.
 - **Caminho para mostrador NOSSO sem depender de código:** trocar as imagens do
   `.vm_res` (fundo/ponteiros/preview) no formato VRE3 usando o oficial como
   template — o firmware renderiza do recurso. Ferramentas: `PACKRES.exe`,
@@ -243,3 +257,23 @@ mre/hello/          mostrador/app MRE (C + build.sh + sdk/)
   sdk/resource_long.bin  .vm_res oficial do Longines (36.836 B)
 *.py                scripts de captura/protocolo BT usados na engenharia reversa
 ```
+
+## 12. Apps do relógio: criar / apagar / mexer (resposta direta)
+
+- **Apps VXP (instalados por nós / mostradores): CRUD completo já funciona** pelo
+  canal MREE-over-SPP: `0` instalar, `5` listar, `-1` uninstall, `-2` status,
+  `-4` uninstall all, `-3` push only, `8` set permission. O app da bancada tem
+  botões pra tudo isso (Instalar VXP…, picker, Listar, Status, Permissões, Apagar,
+  Excluir, Desinstalar TODOS, Limpar testes). Atualizar = reinstalar com mesmo nome
+  e versão maior. **Criar app novo = gerar um .vxp nosso e instalar.**
+- **Apps nativos do firmware (os que já vêm no relógio): NÃO são apagáveis/editáveis
+  pelo MREE.** O instalador responde `-101` (embutido/não removível) pra eles; vivem
+  na flash do firmware, não na área de apps VXP. Mexer neles = modificar firmware
+  (risco de brick), fora do canal seguro que usamos.
+- **O que bloqueia app novo "de verdade" (com lógica, não só imagem):** executar
+  código nosso no MRE 2.0 (§6). Recursos/imagens já renderizam nativo; lógica
+  (ponteiros, telas interativas, sensores) precisa do entry/import corrigido acima.
+  O teste `LuizFace MRE2` decide se destravamos isso.
+- **Interface "NOSSA" do relógio:** sem firmware mod, o caminho é mostrador/app VXP
+  nosso em tela cheia (auto-start tag `0x32`) + nosso app Android como companion.
+  Reconstruir o launcher nativo inteiro exigiria firmware mod (não seguro hoje).
