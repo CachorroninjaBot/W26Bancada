@@ -155,7 +155,7 @@ add_int_tag(0x03, 1)  # index of key ID, whatever that is
 add_int_array_tag(0x06, [0, 0, 0, 0, 0, 0])  # license issue date (unused)
 add_int_array_tag(0x07, [0, 0, 0, 0, 0, 0])  # license expiry date
 add_int_tag(0x10, 0)  # resolution (not enforced)
-add_int_tag(0x11, 8457)  # engine version
+add_int_tag(0x11, 0x09C40000)  # engine version (00 00 C4 09 no formato oficial)
 add_int_tag(0x16, 1)  # input mode 1
 add_int_tag(0x1c, 0)  # doesn't support rotation
 add_int_tag(0x21, 6)  # VXP compiled using GCC
@@ -170,7 +170,7 @@ add_string_tag(0x2e, "")  # push notification sender email
 add_int_tag(0x2f, 0)  # doesn't use AB2 formant image (what)
 add_int_tag(0x31, 0)  # doesn't use advanced icon format
 add_int_tag(0x32, 0)  # doesn't auto-start on power on
-add_int_tag(0x33, 0)  # doesn't add shortcut on installation
+add_int_tag(0x33, 1)  # cria atalho do app ao instalar
 
 append_int32(0)  # 8 reserved bytes
 append_int32(0)
