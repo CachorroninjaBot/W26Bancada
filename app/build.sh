@@ -10,8 +10,8 @@ BT="$SDK/build-tools/36.0.0"
 
 rm -rf build && mkdir -p build/classes build/dex dist
 
-mkdir -p build/assets
-cp assets/* build/assets/
+rm -rf build/assets; mkdir -p build/assets
+cp -r assets/* build/assets/
 if [ -f ../mre/hello/MyMREApp.vxp ]; then
     cp ../mre/hello/MyMREApp.vxp build/assets/luizface.vxp
 fi

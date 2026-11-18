@@ -9,6 +9,8 @@ import android.content.Intent;
 import android.content.IntentFilter;
 import android.content.pm.PackageManager;
 import android.content.res.ColorStateList;
+import android.graphics.Bitmap;
+import android.graphics.BitmapFactory;
 import android.graphics.Color;
 import android.graphics.Typeface;
 import android.graphics.drawable.GradientDrawable;
@@ -27,10 +29,13 @@ import android.provider.Settings;
 import android.view.KeyEvent;
 import android.view.View;
 import android.view.ViewGroup;
+import android.widget.ArrayAdapter;
 import android.widget.Button;
 import android.widget.EditText;
+import android.widget.ImageView;
 import android.widget.LinearLayout;
 import android.widget.ScrollView;
+import android.widget.Spinner;
 import android.widget.Switch;
 import android.widget.TextView;
 
@@ -69,6 +74,8 @@ public class MainActivity extends Activity implements W26.Listener {
     private EditText tjdCmd;
     private EditText mtkHex;
     private EditText vxpName;
+    private Spinner facePreset;
+    private TextView faceInfo;
     private Switch autoSyncSwitch;
     private Switch notifSwitch;
 
@@ -254,9 +261,7 @@ public class MainActivity extends Activity implements W26.Listener {
         mre.addView(row(
                 ghostBtn("LuizFace", v -> installAsset("luizface.vxp", "luizface.vxp")),
                 ghostBtn("LuizApp", v -> installAsset("luizapp.vxp", "luizapp.vxp"))));
-        mre.addView(ghostBtn("LuizFace 240 (teste ponteiros)", v -> installAsset("luizface4.vxp", "luizface240.vxp")));
-        mre.addView(ghostBtn("Ronman digital (teste render)", v -> installAsset("ronman.vxp", "ronman.vxp")));
-        mre.addView(ghostBtn("LuizFace MRE2 (teste CODIGO)", v -> installAsset("luizface5.vxp", "luizfacemre2.vxp")));
+        mre.addView(ghostBtn("Ronman digital (template)", v -> installAsset("ronman.vxp", "ronman.vxp")));
         mre.addView(row(
                 ghostBtn("Instalar VXP…", v -> {
                     Intent i = new Intent(Intent.ACTION_OPEN_DOCUMENT);
@@ -277,6 +282,24 @@ public class MainActivity extends Activity implements W26.Listener {
                 dangerBtn("Desinstalar TODOS", v -> W26.get().mreeUninstallAll()),
                 ghostBtn("Limpar testes", v -> cleanTests())));
         ctrl.addView(mre);
+
+        // ---- Criar mostrador DIGITAL (fundos pre-montados, estatisticas nativas) ----
+        LinearLayout face = card();
+        face.addView(sectionTitle("Criar mostrador digital"));
+        facePreset = new Spinner(this);
+        String[] names = new String[FaceBuilder.PRESETS.length];
+        for (int i = 0; i < names.length; i++) names[i] = FaceBuilder.PRESETS[i].name;
+        ArrayAdapter<String> pa = new ArrayAdapter<>(this,
+                android.R.layout.simple_spinner_item, names);
+        pa.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item);
+        facePreset.setAdapter(pa);
+        face.addView(labeled("Fundo", facePreset));
+        faceInfo = statValue("Digital com horas + estatísticas (passos/HR/data) e atalhos "
+                + "de toque (música/HR) nativos do relógio. Os dois fundos já vêm no template; "
+                + "o relógio alterna entre eles pelo toque.");
+        face.addView(faceInfo);
+        face.addView(primaryBtn("Gerar e instalar no relógio", v -> installFace()));
+        ctrl.addView(face);
 
         // ---- Console (colapsavel) ----
         LinearLayout advBody = new LinearLayout(this);
@@ -329,6 +352,22 @@ public class MainActivity extends Activity implements W26.Listener {
             W26.get().mreeInstall(name, asset(asset));
         } catch (Exception e) {
             log("asset " + asset + ": " + e.getMessage());
+        }
+    }
+
+    private void installFace() {
+        FaceBuilder.Preset p = FaceBuilder.PRESETS[facePreset.getSelectedItemPosition()];
+        try {
+            byte[] v = FaceBuilder.build(asset(p.asset));
+            String name = "lz_" + p.asset.substring(p.asset.indexOf('/') + 1);
+            // O relogio tem pouco espaco para mostradores: libera os presets antes
+            // de instalar o novo (senao o instalador recusa com -1000 / "sem espaco").
+            for (FaceBuilder.Preset o : FaceBuilder.PRESETS)
+                W26.get().mreeUninstall("lz_" + o.asset.substring(o.asset.indexOf('/') + 1));
+            W26.get().mreeInstall(name, v);
+            log("mostrador \"" + p.name + "\" (" + v.length + " B) enviado como " + name);
+        } catch (Exception e) {
+            log("criar mostrador: " + e);
         }
     }
 
@@ -710,7 +749,8 @@ public class MainActivity extends Activity implements W26.Listener {
     @Override
     protected void onActivityResult(int req, int res, Intent data) {
         super.onActivityResult(req, res, data);
-        if (req != REQ_VXP || res != RESULT_OK || data == null || data.getData() == null) return;
+        if (res != RESULT_OK || data == null || data.getData() == null) return;
+        if (req != REQ_VXP) return;
         android.net.Uri uri = data.getData();
         String name = "app.vxp";
         try (android.database.Cursor c = getContentResolver().query(uri, null, null, null, null)) {

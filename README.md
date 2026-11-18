@@ -57,8 +57,10 @@ MTK e `L4Comm.BrltWallpaperPush` (caminho de wallpaper do app oficial).
 - `app/src/com/luiz/w26/Weather.java` — clima Open-Meteo (sem chave) -> `X0,WEATHER`.
 - `app/src/com/luiz/w26/NotiSvc.java` — listener que encaminha notificacoes (respeita o toggle).
 - `app/src/com/luiz/w26/MainActivity.java` — UI em secoes (status, conexao, sync, finder, MRE, console, log).
+- `app/src/com/luiz/w26/FaceBuilder.java` — criador de mostrador DIGITAL (fundos pre-montados A/B do ronman, Configtbl oficial preservado).
 - `app/assets/*.vxp` — mostradores embarcados (face, luizface, luizapp, luizface3=RES,
-  luizface4=240, luizface5=MRE2, ronman=digital, ref=Longines).
+  ref=Longines). `app/assets/faces/` — template digital `ronman.vxp` + variantes
+  pre-montadas `ronman_a.vxp`/`ronman_b.vxp` (fundos A/B, geradas por `sdk/mkdigital.py`).
 
 Features (18/11): UI escura em cards com header de estado + card de status dos dois
 dispositivos; **finder** (GPS do celular ao conectar, mapa `geo:`, "Fazer vibrar" =
@@ -277,3 +279,46 @@ mre/hello/          mostrador/app MRE (C + build.sh + sdk/)
 - **Interface "NOSSA" do relógio:** sem firmware mod, o caminho é mostrador/app VXP
   nosso em tela cheia (auto-start tag `0x32`) + nosso app Android como companion.
   Reconstruir o launcher nativo inteiro exigiria firmware mod (não seguro hoje).
+
+## 13. Mostrador DIGITAL — conclusões (18/11/2026)
+
+Foco atual: **só digital** (ponteiros abandonados; PNG personalizado abandonado).
+O criador da bancada (`FaceBuilder`) monta mostradores digitais pré-montados.
+
+1. **O firmware renderiza o digital NATIVAMENTE, não o código VXP.** O `ronman.vxp`
+   (único template digital) tem `.symtab`/`.strtab`: o código ADS é um stub
+   `draw_hello` (fonte `c:\Users\kuasa\Desktop\Ironman2\Ironman2.c`, 180 B), igual
+   ao `ref.vxp`. Ele importa `vm_reg_pen_callback`/`vm_graphic_*` mas não desenha
+   o relógio. Quem desenha horas/numerais/estatísticas é o **render nativo do
+   firmware** lendo os recursos: `num_0..9.png` (glifos de dígito), `clock_bg.png`,
+   `clock_bg0.png`, `clock_bg1.png` e `Configtbl.bin`.
+2. **Estatísticas (passos/HR/data) e atalhos de toque (música/HR) são nativos** e
+   dependem do `Configtbl.bin` oficial + conjunto de recursos. Por isso o
+   `FaceBuilder.build()` **preserva o Configtbl exatamente** (patch in-place de
+   16 B, sem reflow): `00 00 29 69 87 69 a5 82 00 00 01 60 80 00 03 00`
+   (byte[14]=`0x03` = digital; analogos usam byte[15]=`0x0a`, pivô bytes[2,3]).
+   Zerar bytes "no chute" quebrava o mostrador — não fazer.
+3. **O caminho oficial de "dial push" NÃO existe no W26.** O protocolo
+   `DialInfoSet`/`WallpaperPush` (que configuraria slots de estatística
+   timeTop/timeBottom = data/sono/HR/passos, posição da hora, cor e fundo PNG)
+   usa o serviço **GATT `0x30A0`** (write `0x3A01`, notify `0x3A00`). Confirmado
+   pelo cache GATT do relógio em `dumpsys bluetooth_manager` (bloco
+   `gatt_hash_…`, device `…c8:f9`): os serviços são **1800, 1801, 1803, 18a0
+   (MTK 2aa0/2aa1), 18e0 (TJD 2e00/2e01), 1804, 1802 (2a06 + 2abc)** — **sem
+   30A0**. Logo não dá para empurrar config de estatística dinamicamente; os
+   slots nativos do Configtbl são o que temos.
+4. **Fundos A/B pré-montados:** o ronman já traz duas artes VRE3 distintas
+   (`clock_bg.png`=`clock_bg1.png`, 32024 B; `clock_bg0.png`, 32564 B) que o
+   relógio alterna pelo toque. `sdk/mkdigital.py` gera `ronman_a.vxp` (fundo
+   original) e `ronman_b.vxp` (`clock_bg.png` ← arte do `clock_bg0.png`),
+   preservando código ADS (ER_RO 4112 B @0x34, entry 0x8000), tags (nome
+   "Ironman Interface", `0x34=1`, 176x220) e Configtbl; `.vm_res` reflowado para
+   `0x4b4c` (layout oficial). Todas as imagens são **VRE3** (`34 01 <len16>`),
+   formato fechado — sem edição de PNG.
+5. **Instalação:** o relógio tem pouco espaço para mostradores; `installFace()`
+   desinstala os presets (`lz_ronman_a/b`) antes de instalar (senão MREE 19 =
+   -1000 "sem espaço"). Códigos MREE: 15=instalado, 16=(-4 ok), 19=-1000 recusado,
+   -101=embutido.
+6. **Pendente de teste no relógio:** selecionar o digital instalado e confirmar
+   horas + estatísticas + atalhos de toque e a troca de fundo A/B. (Celular
+   estava bloqueado na sessão; APK instalado via `adb install -r`.)

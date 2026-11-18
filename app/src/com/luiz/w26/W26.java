@@ -213,6 +213,10 @@ public final class W26 {
     @SuppressLint("MissingPermission")
     private void onReady(BluetoothGatt g) {
         for (BluetoothGattService s : g.getServices()) {
+            StringBuilder cs = new StringBuilder();
+            for (BluetoothGattCharacteristic c : s.getCharacteristics())
+                cs.append(' ').append(c.getUuid().toString().substring(4, 8));
+            log("GATT svc " + s.getUuid().toString().substring(4, 8) + " chars:" + cs);
             if (SVC_TJD.equals(s.getUuid())) tjdChr = s.getCharacteristic(CHR_TJD);
             if (SVC_MTK.equals(s.getUuid())) {
                 mtkW = s.getCharacteristic(CHR_MTK_W);
