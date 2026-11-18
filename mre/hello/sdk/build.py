@@ -173,6 +173,10 @@ add_int_tag(0x31, 1 if watch_face else 0)  # usa formato de icone avancado
 add_int_tag(0x32, 1 if config.get("auto_start") else 0)  # auto-start no boot (mostrador)
 add_int_tag(0x33, 0 if watch_face else 1)  # cria atalho do app ao instalar
 add_int_tag(0x34, 1 if watch_face else 0)  # e um mostrador de relogio (face.vxp original tem 1)
+# tag 0x35: mascara de permissoes exigidas (lida por MREProperties.getPermission no app oficial)
+perm_mask = int(config.get("permission_mask", 0))
+if perm_mask:
+    add_int_tag(0x35, perm_mask)
 
 append_int32(0)  # 8 reserved bytes
 append_int32(0)

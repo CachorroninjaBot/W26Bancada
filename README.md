@@ -50,10 +50,17 @@ MTK e `L4Comm.BrltWallpaperPush` (caminho de wallpaper do app oficial).
 ## 3. App Android (bancada)
 
 - `app/` — app Java sem Gradle (aapt2 + javac + d8 + apksigner).
-- `app/src/com/luiz/w26/W26.java` — GATT + SPP + fila de instalação MREE.
+- `app/src/com/luiz/w26/W26.java` — GATT + SPP + fila de instalação MREE + alerta 1802.
 - `app/src/com/luiz/w26/Mtk.java` — montagem de frames MTK.
-- `app/src/com/luiz/w26/MainActivity.java` — tela de testes com log.
-- `app/assets/*.vxp` — mostradores embarcados (face.vxp, luizface, luizface2, ref=Longines).
+- `app/src/com/luiz/w26/Finder.java` — ultima posicao GPS do celular + mapa + alerta.
+- `app/src/com/luiz/w26/MainActivity.java` — UI em secoes (conexao, finder, MRE, sync, console).
+- `app/assets/*.vxp` — mostradores embarcados (face, luizface, luizapp, luizface3=RES, ref=Longines).
+
+Features (18/11): UI escura em cards; **finder** (guarda GPS do celular ao conectar,
+mostra data/coordenadas, abre no mapa via `geo:`, botao "Fazer vibrar" = Immediate
+Alert `1802/2A06` + TJD FindDevice); MRE cmd `8` (set permissoes), `-4` (uninstall
+all), `-3` (push only); `build.py` emite tag `0x35` (mascara de permissoes) se
+`permission_mask` no manifest.
 
 Build: `cd app && bash build.sh` → `app/dist/w26.apk`.
 Instalar: `adb install -r app/dist/w26.apk` e abrir "W26 Bancada".
@@ -112,14 +119,23 @@ MRE_EXEC=1 MRE_RES=sdk/resource_long.bin MRE_NOFIX=1 MRE_REFLOW=0x4b4c \
 5. Após as tentativas frustradas, **os dois mostradores custom (Longines e o nosso)
    passaram a renderizar preto** — estado da face corrompido; reiniciar o relógio.
 
-## 6. Conclusões atuais sobre modo mostrador
+## 6. Conclusões sobre modo mostrador e o toolchain
 
-- O firmware desenha o fundo (`clock_bg`) direto do `.vm_res`; a ausência dos
-  ponteiros no Longines sugere que **o código do VXP não roda nesse modo** (ou roda
-  em sandbox sem acesso ao layer). Precisamos provar com sinal não-visual:
-  `vm_vibrator_once()` no `vm_main` + timer de 3 s (já está no `src/test.c`).
-- Se o código não rodar em modo face, o caminho para "meu mostrador" é empacotar
-  imagens próprias no `.vm_res` (fundo/ponteiros) no formato VRE3, como os oficiais.
+- **Causa raiz da tela preta (confirmada):** o W26 roda **MRE 2.0** (a tabela de
+  recursos se chama `mre-2.0`; o SDK tem `MRE2.0.dll`). O toolchain GCC
+  (mre-makefile) **só executa em MRE 3.x** — o README dele diz explicitamente
+  "Running a compiled VXP on MRE <3.0 phones: doesn't work". Por isso o código
+  oficial ADS roda (desenha o fundo) e o nosso GCC fica preto sem nem vibrar:
+  `gcc_entry` espera o resolvedor `vm_get_sym_entry` em `r0`, convenção que a VM
+  2.0 não usa; toda chamada de API das libs `per*.a` passa por ele e crasha.
+- **Caminho para mostrador NOSSO sem depender de código:** trocar as imagens do
+  `.vm_res` (fundo/ponteiros/preview) no formato VRE3 usando o oficial como
+  template — o firmware renderiza do recurso. Ferramentas: `PACKRES.exe`,
+  `ResEditor`, `LogoMake.exe`, `ElfConvert.exe` em `tmp/mresdk/tools` (cópia antiga).
+- **Caminho para código próprio:** compilador ADS (proprietário) ou adaptar o
+  entry/convenção de símbolos ao MRE 2.0 (engenharia reversa do loader).
+- O experimento `LuizFaceRes` (recursos oficiais + código GCC) deu **preto**,
+  consistente com a incompatibilidade GCC↔MRE2.0 acima.
 
 ## 7. Estado atual (18/11/2026, ~04h)
 

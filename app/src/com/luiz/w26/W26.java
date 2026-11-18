@@ -30,6 +30,8 @@ public final class W26 {
     public static final UUID SVC_MTK = UUID.fromString("000018a0-0000-1000-8000-00805f9b34fb");
     public static final UUID CHR_MTK_W = UUID.fromString("00002aa1-0000-1000-8000-00805f9b34fb");
     public static final UUID CHR_MTK_R = UUID.fromString("00002aa0-0000-1000-8000-00805f9b34fb");
+    public static final UUID SVC_ALERT = UUID.fromString("00001802-0000-1000-8000-00805f9b34fb");
+    public static final UUID CHR_ALERT = UUID.fromString("00002a06-0000-1000-8000-00805f9b34fb");
     private static final UUID CCCD = UUID.fromString("00002902-0000-1000-8000-00805f9b34fb");
     private static final UUID SPP = UUID.fromString("00001101-0000-1000-8000-00805f9b34fb");
 
@@ -61,6 +63,7 @@ public final class W26 {
     private BluetoothGattCharacteristic tjdChr;
     private BluetoothGattCharacteristic mtkW;
     private BluetoothGattCharacteristic mtkR;
+    private BluetoothGattCharacteristic alertChr;
     private BluetoothSocket spp;
     private volatile boolean sppUp;
     private volatile boolean ctaSupported;
@@ -193,8 +196,10 @@ public final class W26 {
                 mtkW = s.getCharacteristic(CHR_MTK_W);
                 mtkR = s.getCharacteristic(CHR_MTK_R);
             }
+            if (SVC_ALERT.equals(s.getUuid())) alertChr = s.getCharacteristic(CHR_ALERT);
         }
-        log("TJD=" + (tjdChr != null) + " MTK-W=" + (mtkW != null) + " MTK-R=" + (mtkR != null));
+        log("TJD=" + (tjdChr != null) + " MTK-W=" + (mtkW != null) + " MTK-R=" + (mtkR != null)
+                + " Alert=" + (alertChr != null));
         if (tjdChr != null) {
             g.setCharacteristicNotification(tjdChr, true);
             cccd(g, tjdChr);
@@ -244,7 +249,7 @@ public final class W26 {
             log("caracteristica ausente; pacote descartado");
             return;
         }
-        queue.add(new Item((byte) (c == tjdChr ? 1 : 2), data));
+        queue.add(new Item((byte) (c == tjdChr ? 1 : c == alertChr ? 3 : 2), data));
         if (!writing) nextWrite();
     }
 
@@ -254,13 +259,13 @@ public final class W26 {
         if (g == null || writing) return;
         Item item = queue.pollFirst();
         if (item == null) return;
-        BluetoothGattCharacteristic c = item.id == 1 ? tjdChr : mtkW;
+        BluetoothGattCharacteristic c = item.id == 1 ? tjdChr : item.id == 3 ? alertChr : mtkW;
         if (c == null) {
             nextWrite();
             return;
         }
-        c.setWriteType(item.id == 1 ? BluetoothGattCharacteristic.WRITE_TYPE_DEFAULT
-                : BluetoothGattCharacteristic.WRITE_TYPE_NO_RESPONSE);
+        c.setWriteType(item.id == 2 ? BluetoothGattCharacteristic.WRITE_TYPE_NO_RESPONSE
+                : BluetoothGattCharacteristic.WRITE_TYPE_DEFAULT);
         c.setValue(item.data);
         writing = true;
         if (!g.writeCharacteristic(c)) {
@@ -547,6 +552,29 @@ public final class W26 {
         mree(-6, 0, ("-6 " + name).getBytes(StandardCharsets.US_ASCII));
     }
 
+    /** cmd 8: define a mascara de permissoes de um app ja instalado (como o app oficial). */
+    public void mreeSetPermission(String name, int mask) {
+        String s = "8 " + name + " " + String.format("%08X", mask);
+        mree(8, 0, s.getBytes(StandardCharsets.US_ASCII));
+    }
+
+    /** cmd -4: desinstala todos os apps VXP de uma vez (limpeza total). */
+    public void mreeUninstallAll() {
+        mree(-4, 0, "-4 ".getBytes(StandardCharsets.US_ASCII));
+    }
+
+    /** cmd -3: so empurra o arquivo para o relogio, sem instalar (push only). */
+    public void mreePushOnly(String name, byte[] vxp) {
+        if (!sppUp) {
+            log("MRE precisa do SPP conectado");
+            return;
+        }
+        String head = vxp.length + " " + name;
+        mree(-3, 0, head.getBytes(StandardCharsets.US_ASCII));
+        mree(-3, 1, vxp);
+        log("MRE push-only: " + name + " (" + vxp.length + " bytes)");
+    }
+
     public void mreeCta() {
         mree(9, 0, "9 cta".getBytes(StandardCharsets.US_ASCII));
     }
@@ -596,6 +624,17 @@ public final class W26 {
     }
 
     public void findDevice() {
+        sendTjd("X1,PRSET,FindDevice,1");
+    }
+
+    /** Immediate Alert (1802/2A06): 0=none, 1=mild, 2=high. Faz o relogio vibrar/tocar. */
+    public void alertWatch(int level) {
+        if (alertChr != null) {
+            enqueue(alertChr, new byte[]{(byte) level});
+            log("Alerta BLE (2A06) nivel " + level);
+        } else {
+            log("sem servico 1802; usando TJD FindDevice");
+        }
         sendTjd("X1,PRSET,FindDevice,1");
     }
 
