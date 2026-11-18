@@ -160,6 +160,13 @@ MRE_EXEC=1 MRE_RES=sdk/resource_long.bin MRE_NOFIX=1 MRE_REFLOW=0x4b4c \
   manter os NOMES dos recursos, tag `0x10`=176x220, `0x34`=1, copiar o mapa de IDs
   tag-`0x13` do ref. Instalar via MREE e selecionar. Se os ponteiros aparecerem →
   confirma render nativo + mismatch de tamanho.
+- **Teste barato já montado (`LuizFace240.vxp` = asset `luizface4.vxp`, botão
+  "LuizFace 240 (teste ponteiros)"):** mesmos recursos oficiais 240x240 + configtbl
+  (119,119), mas tag `0x10` declarada **240x240** (em vez de 176x220). Se o firmware
+  aloca a camada de rotação pelo tamanho da tag `0x10`, declarar 240x240 casa com as
+  imagens e os ponteiros podem aparecer (escalados/recortados na tela). Build:
+  `MRE_RESOLUTION=240x240 MRE_NAME=LuizFace240 MRE_RES=sdk/resource_long.bin …`
+  (overrides `MRE_NAME`/`MRE_RESOLUTION` adicionados ao `build.py`).
 
 ## 7. Estado atual (18/11/2026, ~04h)
 

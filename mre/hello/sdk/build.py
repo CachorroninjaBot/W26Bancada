@@ -134,7 +134,7 @@ def add_string_array_tag(id, values):
 tags_pos = len(axf)
 
 add_string_tag(0x01, config["vendor"])
-add_string_tag(0x04, config["name"])
+add_string_tag(0x04, os.environ.get("MRE_NAME", config["name"]))
 add_int_tag(0x05, config["version"])
 add_int_tag(0x0f, config["required_ram"])
 add_ascii_string_tag(0x12, config["imsi"])
@@ -155,6 +155,8 @@ add_int_tag(0x03, 1)  # index of key ID, whatever that is
 add_int_array_tag(0x06, [0, 0, 0, 0, 0, 0])  # license issue date (unused)
 add_int_array_tag(0x07, [0, 0, 0, 0, 0, 0])  # license expiry date
 res = config.get("resolution", [240, 240])
+if os.environ.get("MRE_RESOLUTION"):
+    res = [int(x) for x in os.environ["MRE_RESOLUTION"].split("x")]
 add_int_tag(0x10, (res[0] << 16) | res[1])  # resolucao (2 x int16)
 add_int_tag(0x11, 0x09C40000)  # engine version (00 00 C4 09 no formato oficial)
 add_int_tag(0x16, 1)  # input mode 1
