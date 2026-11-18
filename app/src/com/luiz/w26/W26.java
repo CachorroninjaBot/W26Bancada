@@ -345,9 +345,9 @@ public final class W26 {
         int tz = tzOffsetMs();
         sendSpp(Mtk.cmd("SYNC REQV"));
         sendSpp(Mtk.cmd("SYNC " + t + " " + tz));
-        sendSpp(Mtk.cmd("EXCD mtk_msctrl msctrl_apk 0 0 4"));
-        sendSpp(Mtk.cmd("MREE mre_installer smartwatch 9 0 5"));
-        sendSpp(Mtk.cmd("EXCD language mtk_language 1 0 5"));
+        sendSpp(Mtk.cmd("EXCD mtk_msctrl msctrl_apk 0 0 4 "));
+        sendSpp(Mtk.cmd("MREE mre_installer smartwatch 9 0 5 "));
+        sendSpp(Mtk.cmd("EXCD language mtk_language 1 0 5 "));
     }
 
     private void sendSpp(byte[] data) {
@@ -413,14 +413,29 @@ public final class W26 {
                 }
                 if (i + 8 + n > b.length) break;
                 byte[] f = Arrays.copyOfRange(b, i, i + 8 + n);
-                String s = Mtk.decode(f);
-                log("MTK-SPP << " + (s.isEmpty() ? hex(f) : s.trim()));
+                String s = Mtk.decode(f).trim();
+                log("MTK-SPP << " + (s.isEmpty() ? hex(f) : s));
+                int jump = 8 + n;
+                if (s.startsWith("MREE ")) {
+                    int plen;
+                    try {
+                        plen = Integer.parseInt(s.substring(5).trim());
+                    } catch (NumberFormatException e) {
+                        plen = -1;
+                    }
+                    if (plen > 0 && plen <= 65536) {
+                        if (i + jump + plen > b.length) break;
+                        String reply = new String(b, i + jump, plen, StandardCharsets.US_ASCII).trim();
+                        log("MRE resp: " + mreMeaning(reply));
+                        jump += plen;
+                    }
+                }
                 if (s.contains("notification_delete")) {
                     log("relogio apagou " + tagOf(s, "msgId"));
                 } else if (s.contains("action_operate")) {
                     log("relogio acionou " + tagOf(s, "msgId") + " " + tagOf(s, "action_id"));
                 }
-                i += 8 + n;
+                i += jump;
                 continue;
             }
             int c = b[i] & 0xFF;
@@ -447,6 +462,80 @@ public final class W26 {
         a += tag.length() + 2;
         int b = xml.indexOf("</" + tag + ">", a);
         return b < 0 ? "" : xml.substring(a, b);
+    }
+
+    // ---- MRE: instalador de apps .vxp do proprio relogio ----
+
+    private static final String MRE_ERRORS[] = {
+            "app_path eh NULL", "limite de apps instalados", "erro na tag do nome do app",
+            "sem memoria no runtime", "atalho ja instalado", "erro ao ler info do atalho",
+            "app ja instalado", "erro nas tags de icone/nome", "erro ao gravar info de app interno",
+            "erro ao salvar icone", "erro ao gravar info do vxp"};
+
+    private static String mreMeaning(String reply) {
+        String body = reply.substring("mre_installer ".length()).trim();
+        if (body.isEmpty()) return reply;
+        String codeStr = body.split(" ")[0];
+        String rest = body.length() > codeStr.length() ? body.substring(codeStr.length()).trim() : "";
+        String meaning;
+        int code;
+        try {
+            code = Integer.parseInt(codeStr);
+        } catch (NumberFormatException e) {
+            return reply;
+        }
+        if (code == 1) meaning = "instalado com sucesso";
+        else if (code == -1) meaning = "desinstalado";
+        else if (code == -2) meaning = "status do app";
+        else if (code == -6) meaning = "arquivo excluido";
+        else if (code == 5) meaning = "lista de apps";
+        else if (code == 7) meaning = "permissoes";
+        else if (code == 8) meaning = "permissao alterada";
+        else if (code >= -1011 && code <= -1001) meaning = "falha: " + MRE_ERRORS[-1000 - code];
+        else if (code == -1000) meaning = "falha: erro desconhecido";
+        else if (code == -109) meaning = "falha: comando invalido (sem espaco final?)";
+        else meaning = "codigo " + code;
+        return meaning + (rest.isEmpty() ? "" : " | " + rest.replace("<", "").replace(">", ""));
+    }
+
+    private void mree(int cmd, int part, byte[] payload) {
+        String hdr = "MREE mre_installer smartwatch " + cmd + " " + part + " " + payload.length + " ";
+        if (part == 0) log("MRE >> " + hdr.trim());
+        byte[] f = Mtk.frame(hdr.getBytes(StandardCharsets.US_ASCII));
+        byte[] out = new byte[f.length + payload.length];
+        System.arraycopy(f, 0, out, 0, f.length);
+        System.arraycopy(payload, 0, out, f.length, payload.length);
+        sendSpp(out);
+    }
+
+    public void mreeList() {
+        mree(5, 0, "5 ".getBytes(StandardCharsets.US_ASCII));
+    }
+
+    public void mreeStatus(String name) {
+        mree(-2, 0, ("-2 " + name + " ").getBytes(StandardCharsets.US_ASCII));
+    }
+
+    public void mreePermissions(String name) {
+        mree(7, 0, ("7 " + name).getBytes(StandardCharsets.US_ASCII));
+    }
+
+    public void mreeUninstall(String name) {
+        mree(-1, 0, ("-1 " + name).getBytes(StandardCharsets.US_ASCII));
+    }
+
+    public void mreeDelete(String name) {
+        mree(-6, 0, ("-6 " + name).getBytes(StandardCharsets.US_ASCII));
+    }
+
+    public void mreeInstall(String name, byte[] vxp) {
+        if (!sppUp) {
+            log("MRE precisa do SPP conectado");
+            return;
+        }
+        mree(0, 0, (vxp.length + " " + name).getBytes(StandardCharsets.US_ASCII));
+        mree(0, 1, vxp);
+        log("MRE: enviado " + name + " (" + vxp.length + " bytes)");
     }
 
     // ---- sequencias ----

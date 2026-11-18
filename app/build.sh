@@ -18,6 +18,7 @@ D8="$BT/d8.bat"
 "$D8" --lib "$AJ" --min-api 26 --output build/dex build/classes/com/luiz/w26/*.class
 
 "$BT/aapt2" link -I "$AJ" --manifest AndroidManifest.xml \
+    -A assets \
     --min-sdk-version 26 --target-sdk-version 36 \
     -o build/base.apk
 

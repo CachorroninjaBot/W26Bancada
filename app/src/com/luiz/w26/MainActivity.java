@@ -86,6 +86,22 @@ public class MainActivity extends Activity implements W26.Listener {
                         "Qoder", "Teste do celular", "Se voce esta lendo isso, funcionou!"))));
 
         root.addView(row(
+                button("MREE listar", v -> W26.get().mreeList()),
+                button("Instalar face.vxp", v -> {
+                    try {
+                        W26.get().mreeInstall("face.vxp", asset("face.vxp"));
+                    } catch (Exception e) {
+                        log("asset: " + e.getMessage());
+                    }
+                }),
+                button("MREE apagar", v -> W26.get().mreeUninstall("face.vxp"))));
+
+        root.addView(row(
+                button("MREE status", v -> W26.get().mreeStatus("face.vxp")),
+                button("MREE perms", v -> W26.get().mreePermissions("face.vxp")),
+                button("MREE excluir", v -> W26.get().mreeDelete("face.vxp"))));
+
+        root.addView(row(
                 button("Acesso a notificacoes", v -> startActivity(
                         new Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS)))));
 
@@ -156,6 +172,16 @@ public class MainActivity extends Activity implements W26.Listener {
         for (View v : views) r.addView(v, new LinearLayout.LayoutParams(0,
                 ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
         return r;
+    }
+
+    private byte[] asset(String name) throws Exception {
+        try (java.io.InputStream in = getAssets().open(name)) {
+            java.io.ByteArrayOutputStream o = new java.io.ByteArrayOutputStream();
+            byte[] b = new byte[8192];
+            int r;
+            while ((r = in.read(b)) > 0) o.write(b, 0, r);
+            return o.toByteArray();
+        }
     }
 
     private void requestPermissions() {
