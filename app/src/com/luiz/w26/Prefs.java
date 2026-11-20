@@ -53,4 +53,52 @@ public final class Prefs {
     public static void setNotifSkipSystem(Context c, boolean v) {
         p(c).edit().putBoolean("notifSkipSystem", v).apply();
     }
+
+    /** Reconectar sozinho quando o relogio aparece / bluetooth liga / app abre. */
+    public static boolean autoConnect(Context c) {
+        return p(c).getBoolean("autoConnect", true);
+    }
+
+    public static void setAutoConnect(Context c, boolean v) {
+        p(c).edit().putBoolean("autoConnect", v).apply();
+    }
+
+    /** Intencao do usuario: false depois de "Desconectar" manual (nao reconecta sozinho). */
+    public static boolean wantConn(Context c) {
+        return p(c).getBoolean("wantConn", true);
+    }
+
+    public static void setWantConn(Context c, boolean v) {
+        p(c).edit().putBoolean("wantConn", v).apply();
+    }
+
+    public static String bleMac(Context c) {
+        return p(c).getString("bleMac", "C2:BA:45:15:C8:F9");
+    }
+
+    public static String sppMac(Context c) {
+        return p(c).getString("sppMac", "06:87:E6:0C:62:61");
+    }
+
+    public static void setMacs(Context c, String ble, String spp) {
+        p(c).edit().putString("bleMac", ble).putString("sppMac", spp).apply();
+    }
+
+    /** API HTTP interna de diagnostico/controle (so localhost). */
+    public static boolean apiEnabled(Context c) {
+        return p(c).getBoolean("apiEnabled", true);
+    }
+
+    public static void setApiEnabled(Context c, boolean v) {
+        p(c).edit().putBoolean("apiEnabled", v).apply();
+    }
+
+    /** Sincronizar saude (passos/BPM/sono) ao conectar e periodicamente. */
+    public static boolean healthAuto(Context c) {
+        return p(c).getBoolean("healthAuto", true);
+    }
+
+    public static void setHealthAuto(Context c, boolean v) {
+        p(c).edit().putBoolean("healthAuto", v).apply();
+    }
 }

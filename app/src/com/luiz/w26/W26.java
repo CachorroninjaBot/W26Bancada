@@ -48,6 +48,18 @@ public final class W26 {
 
         default void onMusic(String action) {
         }
+
+        /** Resposta crua do instalador MREE ("mre_installer <code> ..."). */
+        default void onMreReply(String reply) {
+        }
+
+        /** Frame TJD completo recebido do relogio (termina em #). */
+        default void onTjd(String frame) {
+        }
+
+        /** Texto MTK decifrado (BLE ou SPP). */
+        default void onMtk(String text) {
+        }
     }
 
     private static final W26 INSTANCE = new W26();
@@ -68,6 +80,10 @@ public final class W26 {
 
     private final Handler main = new Handler(Looper.getMainLooper());
     private final ArrayDeque<Item> queue = new ArrayDeque<>();
+    private final java.util.List<Listener> listeners = new java.util.concurrent.CopyOnWriteArrayList<>();
+    private final ArrayDeque<byte[]> pendingNotif = new ArrayDeque<>();
+    /** Dados do dispositivo aprendidos do protocolo (firmware, modelo, ...). */
+    public final java.util.Map<String, String> info = new java.util.concurrent.ConcurrentHashMap<>();
     private BluetoothGatt gatt;
     private BluetoothGattCharacteristic tjdChr;
     private BluetoothGattCharacteristic mtkW;
@@ -75,10 +91,12 @@ public final class W26 {
     private BluetoothGattCharacteristic alertChr;
     private BluetoothSocket spp;
     private volatile boolean sppUp;
+    private volatile boolean sppConnecting;
     private volatile boolean ctaSupported;
     private final Object sppLock = new Object();
-    private Listener listener;
+    private volatile String state = "desconectado";
     private boolean writing;
+    private int writeGen;
     private boolean discovered;
     private int mtu = 23;
     private int msgId = 100;
@@ -93,8 +111,16 @@ public final class W26 {
         return watchBattery;
     }
 
-    public void setListener(Listener l) {
-        listener = l;
+    public String getState() {
+        return state;
+    }
+
+    public void addListener(Listener l) {
+        if (l != null && !listeners.contains(l)) listeners.add(l);
+    }
+
+    public void removeListener(Listener l) {
+        listeners.remove(l);
     }
 
     public boolean isConnected() {
@@ -103,8 +129,8 @@ public final class W26 {
 
     private void log(String s) {
         Log.d(TAG, s);
-        final Listener l = listener;
-        if (l != null) main.post(() -> l.onLog(s));
+        LogStore.append(s);
+        for (Listener l : listeners) main.post(() -> l.onLog(s));
     }
 
     /** Log publico para helpers externos (clima, etc.). */
@@ -113,12 +139,16 @@ public final class W26 {
     }
 
     private void state(String s) {
-        final Listener l = listener;
-        if (l != null) main.post(() -> l.onState(s));
+        state = s;
+        for (Listener l : listeners) main.post(() -> l.onState(s));
     }
 
     @SuppressLint("MissingPermission")
     public void connect(Context ctx, String mac) {
+        if (isConnected()) {
+            log("BLE: ja conectado");
+            return;
+        }
         disconnect();
         BluetoothManager bm = (BluetoothManager) ctx.getSystemService(Context.BLUETOOTH_SERVICE);
         BluetoothAdapter ad = bm == null ? null : bm.getAdapter();
@@ -237,6 +267,20 @@ public final class W26 {
         state("conectado");
         if (!sppUp) mtkInit();
         tjdInit();
+        flushPending();
+    }
+
+    /** Notificacoes que chegaram com o relogio fora: entrega quando conecta. */
+    private void flushPending() {
+        if (pendingNotif.isEmpty()) return;
+        if (!isConnected() && !sppUp) return;
+        int n = pendingNotif.size();
+        byte[] f;
+        while ((f = pendingNotif.pollFirst()) != null) {
+            if (sppUp) sendSpp(f);
+            else sendMtk(f);
+        }
+        log("notificacoes pendentes entregues: " + n);
     }
 
     @SuppressLint("MissingPermission")
@@ -281,27 +325,62 @@ public final class W26 {
 
     /** Interpreta respostas TJD: bateria do relogio e pedido de "encontrar celular". */
     private void parseTjd(String s) {
-        final Listener l = listener;
+        // O frame chega com cabecalho "$LHBT TJD_Dev TJD_APP 0 <len> "; os listeners
+        // (Health/Apps) esperam so o payload a partir do verbo X0,/X1,.
+        int x0 = s.indexOf("X0,"), x1 = s.indexOf("X1,"), start = -1;
+        if (x0 >= 0 && x1 >= 0) start = Math.min(x0, x1);
+        else start = Math.max(x0, x1);
+        final String p = start >= 0 ? s.substring(start) : s;
+        for (Listener l : listeners) main.post(() -> l.onTjd(p));
         java.util.regex.Matcher bat = java.util.regex.Pattern
-                .compile("GET,7[^0-9]{0,3}(\\d{1,3})").matcher(s);
+                .compile("GET,7[^0-9]{0,3}(\\d{1,3})").matcher(p);
         if (bat.find()) {
             int pct = Integer.parseInt(bat.group(1));
             if (pct >= 0 && pct <= 100) {
                 watchBattery = pct;
-                if (l != null) main.post(() -> l.onBattery(pct));
+                for (Listener l : listeners) main.post(() -> l.onBattery(pct));
             }
         }
-        String low = s.toLowerCase(java.util.Locale.ROOT);
+        String low = p.toLowerCase(java.util.Locale.ROOT);
         if (low.contains("findapp")) {
-            boolean start = low.contains("findapp,1");
+            boolean start1 = low.contains("findapp,1");
             sendTjd("X1,PRRET,FindApp");
-            if (l != null) main.post(() -> l.onFindPhone(start));
+            for (Listener l : listeners) main.post(() -> l.onFindPhone(start1));
         }
+        if (p.startsWith("X0,GET,0,")) info.put("devType", p.substring(9).replace("#", "").trim());
+        if (p.startsWith("X0,GET,5,")) info.put("protocol", p.substring(9).replace("#", "").trim());
+    }
+
+    /** Extrai dados do dispositivo: XML mtk_deviceinfo e versao do SYNC REQV. */
+    private void parseInfo(String s) {
+        if (s.contains("<model>") || s.contains("<max_memory>") || s.contains("mtk_deviceinfo")) {
+            for (String tag : new String[]{"model", "brand", "version", "mre_version", "max_memory",
+                    "g_sensor", "heart_rate_sensor", "temperature_sensor", "humidity_sensor",
+                    "magnetic_sensor", "gyro_sensor", "gps", "gsm"}) {
+                String v = tagOf(s, tag);
+                if (!v.isEmpty()) info.put(tag, v);
+            }
+            java.util.regex.Matcher lcd = java.util.regex.Pattern
+                    .compile("<lcdsize[^>]*width=\"(\\d+)\"[^>]*length=\"(\\d+)\"").matcher(s);
+            if (lcd.find()) info.put("lcd", lcd.group(1) + "x" + lcd.group(2));
+            log("device info: " + info.get("model") + " fw " + info.get("version")
+                    + " mre " + info.get("mre_version") + " mem " + info.get("max_memory"));
+        }
+        java.util.regex.Matcher reqv = java.util.regex.Pattern.compile("REQV[^0-9]{0,4}(\\d{2,})").matcher(s);
+        if (reqv.find()) info.put("firmware", reqv.group(1));
+    }
+
+    /** Pede o XML completo de hardware/software do relogio (canal MTK). */
+    public void requestDeviceInfo() {
+        sendMtkAuto(Mtk.cmd("bnsrv_device mtk_deviceinfo 0 0 0 "));
     }
 
     /** Interpreta o canal MTK: controle de musica (msctrl) vindo do relogio. */
     private void parseMtk(String s) {
-        if (s == null || !s.contains("msctrl")) return;
+        if (s == null || s.isEmpty()) return;
+        for (Listener l : listeners) main.post(() -> l.onMtk(s));
+        parseInfo(s);
+        if (!s.contains("msctrl")) return;
         String[] p = s.trim().split("\\s+");
         if (p.length < 5) return;
         String action;
@@ -315,8 +394,7 @@ public final class W26 {
             case "8": action = "next"; break;
             default: return;
         }
-        final Listener l = listener;
-        if (l != null) main.post(() -> l.onMusic(action));
+        for (Listener l : listeners) main.post(() -> l.onMusic(action));
     }
 
     // ---- envio (fila: BLE so aceita uma escrita por vez) ----
@@ -345,16 +423,19 @@ public final class W26 {
                 : BluetoothGattCharacteristic.WRITE_TYPE_DEFAULT);
         c.setValue(item.data);
         writing = true;
+        final int gen = ++writeGen;
         if (!g.writeCharacteristic(c)) {
             writing = false;
-            log("falha ao escrever");
+            queue.addFirst(item); // nao descarta: re-tenta quando o GATT liberar
+            main.postDelayed(this::nextWrite, 150);
+            return;
         }
         main.postDelayed(() -> {
-            if (writing) {
+            if (writing && writeGen == gen) { // so este write; um watchdog velho nao mexe no novo
                 writing = false;
                 nextWrite();
             }
-        }, 120);
+        }, 1500);
     }
 
     public void sendTjd(String cmd) {
@@ -379,32 +460,84 @@ public final class W26 {
 
     @SuppressLint("MissingPermission")
     public void connectSpp(Context ctx, String mac) {
-        disconnectSpp();
+        if (sppUp || sppConnecting) {
+            log("SPP: ja conectado/conectando");
+            return;
+        }
         final BluetoothManager bm = (BluetoothManager) ctx.getSystemService(Context.BLUETOOTH_SERVICE);
         final BluetoothAdapter ad = bm == null ? null : bm.getAdapter();
         if (ad == null || !ad.isEnabled()) {
             log("SPP: bluetooth desligado");
             return;
         }
+        sppConnecting = true;
         new Thread(() -> {
+            BluetoothSocket s = null;
             try {
                 ad.cancelDiscovery();
                 BluetoothDevice dev = ad.getRemoteDevice(mac);
-                BluetoothSocket s = dev.createRfcommSocketToServiceRecord(SPP);
                 log("SPP conectando em " + mac);
-                s.connect();
+                s = sppTryConnect(dev, mac);
+                if (s == null) throw new java.io.IOException("todas as tentativas de socket falharam");
                 synchronized (sppLock) {
                     spp = s;
                     sppUp = true;
                 }
+                sppConnecting = false;
                 log("SPP conectado");
                 sppHandshake();
+                flushPending();
                 sppRead(s);
             } catch (Exception e) {
-                log("SPP falhou: " + e);
+                sppConnecting = false;
+                log("SPP falhou: " + e.getClass().getSimpleName() + ": " + e.getMessage());
+                if (s != null) try { s.close(); } catch (Exception ignored) { }
                 disconnectSpp();
             }
         }, "spp").start();
+    }
+
+    /** Tenta socket seguro, depois inseguro, depois canal RFCOMM 1 por reflexao.
+     *  Cada tentativa tem watchdog: connect() pode travar ~12 s sem resposta. */
+    @SuppressLint("MissingPermission")
+    private BluetoothSocket sppTryConnect(BluetoothDevice dev, String mac) {
+        for (int mode = 0; mode < 3; mode++) {
+            BluetoothSocket s = null;
+            try {
+                if (mode == 0) {
+                    s = dev.createRfcommSocketToServiceRecord(SPP);
+                } else if (mode == 1) {
+                    s = dev.createInsecureRfcommSocketToServiceRecord(SPP);
+                } else {
+                    s = (BluetoothSocket) dev.getClass()
+                            .getMethod("createRfcommSocket", int.class).invoke(dev, 1);
+                }
+                final BluetoothSocket fs = s;
+                final java.util.concurrent.atomic.AtomicBoolean done =
+                        new java.util.concurrent.atomic.AtomicBoolean(false);
+                Thread watchdog = new Thread(() -> {
+                    try {
+                        Thread.sleep(15000);
+                        if (!done.get()) {
+                            log("SPP: timeout de 15 s, abortando socket");
+                            try { fs.close(); } catch (Exception ignored) { }
+                        }
+                    } catch (InterruptedException ignored) {
+                    }
+                }, "spp-watchdog");
+                watchdog.setDaemon(true);
+                watchdog.start();
+                s.connect();
+                done.set(true);
+                watchdog.interrupt();
+                return s;
+            } catch (Exception e) {
+                log("SPP tentativa " + (mode + 1) + "/3: "
+                        + e.getClass().getSimpleName() + ": " + e.getMessage());
+                if (s != null) try { s.close(); } catch (Exception ignored) { }
+            }
+        }
+        return null;
     }
 
     public void disconnectSpp() {
@@ -508,18 +641,33 @@ public final class W26 {
                         plen = -1;
                     }
                     if (plen > 0 && plen <= 65536) {
-                        if (i + jump + plen > b.length) break;
-                        String reply = new String(b, i + jump, plen, StandardCharsets.US_ASCII).trim();
-                        log("MRE resp: " + mreMeaning(reply));
-                        int rcode = mreCode(reply);
-                        if (rcode == 9) {
-                            ctaSupported = true;
-                            log("CTA confirmado: install aceita campo de permissoes");
-                        } else if (rcode == -109) {
-                            ctaSupported = false;
-                            log("CTA nao suportado por este firmware");
+                        int payStart = i + jump;
+                        int avail = b.length - payStart;
+                        if (avail <= 0) break;
+                        int take = Math.min(plen, avail);
+                        if (avail < plen) {
+                            // padding pode nao chegar: parseia ate o terminador (\0/\n/\r)
+                            int term = -1;
+                            for (int k = payStart; k < b.length; k++) {
+                                if (b[k] == 0 || b[k] == '\n' || b[k] == '\r') { term = k; break; }
+                            }
+                            if (term < 0) break; // ainda incompleto de verdade: espera mais bytes
+                            take = term - payStart;
                         }
-                        jump += plen;
+                        if (take > 0) {
+                            String reply = new String(b, payStart, take, StandardCharsets.US_ASCII).trim();
+                            log("MRE resp: " + mreMeaning(reply));
+                            for (Listener l : listeners) main.post(() -> l.onMreReply(reply));
+                            int rcode = mreCode(reply);
+                            if (rcode == 9) {
+                                ctaSupported = true;
+                                log("CTA confirmado: install aceita campo de permissoes");
+                            } else if (rcode == -109) {
+                                ctaSupported = false;
+                                log("CTA nao suportado por este firmware");
+                            }
+                        }
+                        jump += avail < plen ? take + 1 : plen;
                     }
                 }
                 if (s.contains("notification_delete")) {
@@ -688,7 +836,9 @@ public final class W26 {
     public void tjdInit() {
         sendTjd("X1,LINK");
         sendTjd("X0,GET,0");
+        sendTjd("X0,GET,5");
         sendTjd("X0,GET,7");
+        requestDeviceInfo();
     }
 
     public void syncTime() {
@@ -721,11 +871,13 @@ public final class W26 {
     }
 
     public void notifyWatch(String sender, String title, String content) {
+        byte[] frame = Mtk.notification(sender, title, content, msgId++);
         if (!isConnected() && !sppUp) {
-            log("ignorado (desconectado): " + title);
+            if (pendingNotif.size() >= 20) pendingNotif.pollFirst();
+            pendingNotif.addLast(frame);
+            log("notificacao guardada (relogio fora): " + title);
             return;
         }
-        byte[] frame = Mtk.notification(sender, title, content, msgId++);
         if (sppUp) {
             sendSpp(frame);
             log("notificacao SPP enviada: " + title);

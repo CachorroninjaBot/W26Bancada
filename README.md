@@ -50,13 +50,34 @@ MTK e `L4Comm.BrltWallpaperPush` (caminho de wallpaper do app oficial).
 ## 3. App Android (bancada)
 
 - `app/` — app Java sem Gradle (aapt2 + javac + d8 + apksigner).
-- `app/src/com/luiz/w26/W26.java` — GATT + SPP + fila de instalação MREE + alerta 1802.
-- `app/src/com/luiz/w26/Mtk.java` — montagem de frames MTK.
+- `app/src/com/luiz/w26/W26.java` — cliente BLE (GATT) + SPP, fila de escrita serializada
+  com watchdog por geração, fila de instalação MREE, alerta 1802, parse TJD/MTK e
+  multi-listener (`addListener`). Extrai info do relógio (devType/protocolo/XML MTK).
+- `app/src/com/luiz/w26/Mtk.java` — montagem/decifragem de frames MTK (RC4).
+- `app/src/com/luiz/w26/LinkSvc.java` — **serviço foreground** (`connectedDevice`) que mantém
+  BLE+SPP vivos com o app fechado e reconecta sozinho (BT ligou / ACL / bond / queda de
+  link, backoff 5→60 s, retry de SPP a cada 60 s). Receiver de boot/update. Notificação
+  de estado. Liga/desliga a API.
+- `app/src/com/luiz/w26/LogStore.java` — **logs persistentes** por dia (`filesDir/logs/yyyy-MM-dd.log`,
+  rotação 1 MB, retenção 14 dias) + ring em memória com seq monotônico p/ tail em tempo real.
+- `app/src/com/luiz/w26/Health.java` — **estatísticas de saúde** (protocolo TJD RE'do app oficial):
+  `X0,GET,1` resumo do dia, `2` passos/hora, `3` segmentos de sono, `4` BPM, `8` SpO2, `9` temperatura;
+  medição ao vivo `X1,SET,HrvOpen/BldPrOpen/BOxyOpen/BTmpOpen,1`. Histórico em SQLite (`health.db`).
+  Unidades: distância raw/10000=km, caloria raw/10=kcal, sono raw/3600=h, temperatura raw/10=°C.
+- `app/src/com/luiz/w26/Apps.java` — **gerenciador de apps do relógio** (MREE cmd 5): lista
+  `<nome,versao,flag>` (flag 1=fábrica), desinstalar individual e "liberar espaço" (só os custom).
+- `app/src/com/luiz/w26/Api.java` — **API HTTP interna** em `127.0.0.1:8765` (org.json, sem deps):
+  controle + diagnóstico em tempo real (ver abaixo).
+- `app/src/com/luiz/w26/Chart.java` — gráfico Canvas (barras/linha) p/ passos e BPM de 7 dias.
+- `app/src/com/luiz/w26/Ui.java` — base de UI programática (paleta escura + helpers de card/botão/
+  tile/campo), sem XML.
 - `app/src/com/luiz/w26/Finder.java` — ultima posicao GPS do celular + mapa + alerta.
-- `app/src/com/luiz/w26/Prefs.java` — preferencias de sync (hora auto, notificacoes, ultima sync).
+- `app/src/com/luiz/w26/Prefs.java` — preferencias (hora auto, auto-connect, wantConn, MACs,
+  notificacoes, healthAuto, apiEnabled, ultima sync).
 - `app/src/com/luiz/w26/Weather.java` — clima Open-Meteo (sem chave) -> `X0,WEATHER`.
-- `app/src/com/luiz/w26/NotiSvc.java` — listener que encaminha notificacoes: filtro por app (lista branca/preta) + corte de ruido do sistema (ongoing, midia/`EXTRA_MEDIA_SESSION`, categorias service/transport/progress/system/status, `android`/`systemui`).
-- `app/src/com/luiz/w26/MainActivity.java` — UI estilo Da Fit: dashboard + barra de 6 abas (Inicio, Dispositivo, Mostradores, Ajustes, Notif., Console).
+- `app/src/com/luiz/w26/NotiSvc.java` — listener que encaminha notificacoes: filtro por app + corte de ruido do sistema.
+- `app/src/com/luiz/w26/MainActivity.java` — UI estilo Da Fit: dashboard + barra de 6 abas
+  (Início, Saúde, Dispositivo, Mostradores, Ajustes, Console). Respeita insets (edge-to-edge Android 15+).
 - `app/src/com/luiz/w26/Icon.java` — icones de linha desenhados em Canvas (tingiveis por estado), sem recursos XML.
 - `app/src/com/luiz/w26/Ring.java` — anel de progresso da bateria do relogio (trilho + arco).
 - `app/src/com/luiz/w26/FaceBuilder.java` — criador de mostrador DIGITAL (fundos pre-montados A/B do ronman, Configtbl oficial preservado).
@@ -64,21 +85,41 @@ MTK e `L4Comm.BrltWallpaperPush` (caminho de wallpaper do app oficial).
   ref=Longines). `app/assets/faces/` — template digital `ronman.vxp` + variantes
   pre-montadas `ronman_a.vxp`/`ronman_b.vxp` (fundos A/B, geradas por `sdk/mkdigital.py`).
 
-Features (18/11): **interface redesenhada estilo Da Fit** — dashboard com hero card
-(gradient azul + anel de bateria do relogio), grade de acoes rapidas (sincronizar,
-achar relogio/celular, clima), tiles de estatisticas e barra inferior de 6 abas
-(Inicio/Dispositivo/Mostradores/Ajustes/Notif./Console); toda a UI e programatica (Canvas
-`Icon`/`Ring`, sem R/XML). **Filtro de notificacoes** na aba Notif.: toggle mestre,
-"Ignorar carga, midia e progresso" (corta o ruido do sistema que antes vibrava o
-relogio) e lista de apps instalados com liga/desliga por app (`Prefs.notifBlocked`);
-atalho na dashboard. Cards escuros com header de estado global; **finder** (GPS do celular ao conectar, mapa `geo:`, "Fazer vibrar" =
-`1802/2A06` + TJD FindDevice); **sync automatico** (hora ao conectar, bateria do
-relogio parseada de `X0,GET,7,<n>#` com remontagem de frames `#`, notificacoes com
-toggle + status do listener, refresh a cada 30 s); **encontrar celular** (watch manda
-`X1,PRSEND,FindApp,1/0` -> app toca/vibra 11 s e ACK `X1,PRRET,FindApp`); **musica**
-(watch->phone via MTK `msctrl`, opcode no indice 4 -> teclas de media); **clima**
-(Open-Meteo -> `X0,WEATHER;cidade;dias`); MRE cmd `8`/`-4`/`-3`; `build.py` emite tag
-`0x35` se `permission_mask` no manifest.
+Features (20/11): **conexão automática e persistente** — `LinkSvc` conecta BLE+SPP sozinho
+quando o relógio aparece no Bluetooth e mantém o link com o app fechado (resolve o
+"saio e entro e está desconectado"); SPP com fallback de 3 modos de socket + watchdog +
+erro detalhado no log. **Logs persistentes** por dia com compartilhamento e visualização
+no Console (resolve "não sei qual erro do SPP"). **Saúde** na aba Saúde: passos, BPM
+(médio/mín/máx), sono, calorias, SpO2, temperatura e pressão do dia + gráficos de 7 dias
++ medição ao vivo no relógio (BPM/pressão/SpO2/temperatura). **Dispositivo**: cartão de
+conexão (BLE/SPP, MACs, reconectar), "Sobre o relógio" (modelo/firmware/MRE/tela/protocolo/
+bateria/MACs) e **Apps & espaço** (lista MREE, remover individual, liberar espaço).
+**API interna** p/ controle e diagnóstico em tempo real. **Clima no relógio** explicado
+na UI (manda previsão de 6 dias p/ tela de Clima do relógio via GPS do celular + Open-Meteo).
+Mantém: filtro de notificações por app + corte de ruído, finder, sync de hora automático,
+encontrar celular (watch→phone), música (msctrl→teclas de media), mostrador digital A/B.
+
+### API interna (diagnóstico / controle)
+
+Servidor HTTP só em localhost, dentro do app (porta **8765**). Do PC:
+
+```bash
+adb forward tcp:8765 tcp:8765
+curl http://127.0.0.1:8765/state          # ble/spp/bateria/info/saude/apps
+curl "http://127.0.0.1:8765/events?since=0"   # tail do log em tempo real (seq incremental)
+curl http://127.0.0.1:8765/logs/dates     # dias com log salvo
+curl "http://127.0.0.1:8765/health?days=7"    # histórico de saúde
+curl http://127.0.0.1:8765/apps           # apps instalados no relógio
+curl -X POST http://127.0.0.1:8765/sync   # hora + bateria + saúde
+curl -X POST "http://127.0.0.1:8765/tjd?cmd=X0,GET,1"
+curl -X POST "http://127.0.0.1:8765/mtk?text=SYNC%20REQV"
+curl -X POST http://127.0.0.1:8765/mree/list
+curl -X POST "http://127.0.0.1:8765/mree/uninstall?name=foo.vxp"
+curl -X POST --data-binary @face.vxp "http://127.0.0.1:8765/mree/install?name=face.vxp"
+```
+
+Outros: `/battery`, `/alert?level=2`, `/weather`, `/connect`, `/disconnect`,
+`/mree/status`, `/mree/uninstall-all`. Liga/desliga em Ajustes → "API interna".
 
 Build: `cd app && bash build.sh` → `app/dist/w26.apk`.
 Instalar: `adb install -r app/dist/w26.apk` e abrir "W26 Bancada".

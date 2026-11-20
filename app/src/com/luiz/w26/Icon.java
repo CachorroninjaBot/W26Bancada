@@ -14,7 +14,9 @@ import android.graphics.drawable.Drawable;
 public final class Icon extends Drawable {
     public static final int HOME = 0, DIAL = 1, BT = 2, SYNC = 3, SLIDERS = 4,
             TERMINAL = 5, PIN = 6, BELL = 7, MUSIC = 8, HEART = 9, MAP = 10,
-            BATTERY = 11, WATCH = 12, PLUS = 13, TRASH = 14, LIST = 15, CHEVRON = 16;
+            BATTERY = 11, WATCH = 12, PLUS = 13, TRASH = 14, LIST = 15, CHEVRON = 16,
+            STEPS = 17, MOON = 18, TEMP = 19, DROP = 20, FLAME = 21, APPS = 22,
+            INFO = 23, SHARE = 24, CODE = 25, BP = 26;
 
     private final int kind;
     private final Paint paint = new Paint(Paint.ANTI_ALIAS_FLAG);
@@ -165,6 +167,88 @@ public final class Icon extends Drawable {
             case CHEVRON:
                 p.moveTo(9, 6); p.lineTo(15, 12); p.lineTo(9, 18);
                 canvas.drawPath(p, paint);
+                break;
+            case STEPS:
+                canvas.drawRoundRect(new RectF(5.5f, 4, 10.5f, 13), 2.5f, 2.5f, paint);
+                canvas.drawRoundRect(new RectF(13.5f, 11, 18.5f, 20), 2.5f, 2.5f, paint);
+                paint.setStyle(Paint.Style.FILL);
+                canvas.drawCircle(8, 15.5f, 1.5f, paint);
+                canvas.drawCircle(16, 8.5f, 1.5f, paint);
+                paint.setStyle(Paint.Style.STROKE);
+                break;
+            case MOON:
+                p.moveTo(15.5f, 3.5f);
+                p.cubicTo(10, 4.5f, 6.5f, 8.5f, 6.5f, 13);
+                p.cubicTo(6.5f, 17.5f, 10.5f, 21, 15, 20.5f);
+                p.cubicTo(12.5f, 18.5f, 11.5f, 15.5f, 12.2f, 12.2f);
+                p.cubicTo(12.9f, 8.9f, 14, 6, 15.5f, 3.5f);
+                p.close();
+                canvas.drawPath(p, paint);
+                break;
+            case TEMP:
+                p.moveTo(10, 4.5f);
+                p.arcTo(new RectF(10, 2.5f, 14, 6.5f), 180, 180);
+                p.lineTo(14, 13.5f);
+                p.arcTo(new RectF(8.5f, 12.5f, 15.5f, 19.5f), -30, 240);
+                p.lineTo(10, 13.5f); p.close();
+                canvas.drawPath(p, paint);
+                canvas.drawLine(12, 8, 12, 15, paint);
+                paint.setStyle(Paint.Style.FILL);
+                canvas.drawCircle(12, 16, 1.8f, paint);
+                paint.setStyle(Paint.Style.STROKE);
+                break;
+            case DROP:
+                p.moveTo(12, 3.5f);
+                p.cubicTo(12, 3.5f, 5.5f, 11, 5.5f, 15);
+                p.arcTo(new RectF(5.5f, 8.5f, 18.5f, 21.5f), 180, 180);
+                p.cubicTo(18.5f, 11, 12, 3.5f, 12, 3.5f);
+                p.close();
+                canvas.drawPath(p, paint);
+                break;
+            case FLAME:
+                p.moveTo(12, 3);
+                p.cubicTo(12, 7, 7, 8.5f, 7, 13.5f);
+                p.cubicTo(7, 17.5f, 9.5f, 20.5f, 12, 20.5f);
+                p.cubicTo(14.5f, 20.5f, 17, 17.5f, 17, 13.5f);
+                p.cubicTo(17, 11, 15.5f, 9.5f, 15, 8);
+                p.cubicTo(14.5f, 10, 13, 10.5f, 13, 9);
+                p.cubicTo(13, 7, 12.5f, 5, 12, 3);
+                p.close();
+                canvas.drawPath(p, paint);
+                break;
+            case APPS:
+                canvas.drawRoundRect(new RectF(4, 4, 10.5f, 10.5f), 2, 2, paint);
+                canvas.drawRoundRect(new RectF(13.5f, 4, 20, 10.5f), 2, 2, paint);
+                canvas.drawRoundRect(new RectF(4, 13.5f, 10.5f, 20), 2, 2, paint);
+                canvas.drawRoundRect(new RectF(13.5f, 13.5f, 20, 20), 2, 2, paint);
+                break;
+            case INFO:
+                canvas.drawCircle(12, 12, 8.5f, paint);
+                canvas.drawLine(12, 11, 12, 16.5f, paint);
+                paint.setStyle(Paint.Style.FILL);
+                canvas.drawCircle(12, 7.8f, 1.2f, paint);
+                paint.setStyle(Paint.Style.STROKE);
+                break;
+            case SHARE:
+                canvas.drawCircle(6, 12, 2.6f, paint);
+                canvas.drawCircle(17.5f, 5.5f, 2.6f, paint);
+                canvas.drawCircle(17.5f, 18.5f, 2.6f, paint);
+                canvas.drawLine(8.3f, 10.8f, 15.2f, 6.7f, paint);
+                canvas.drawLine(8.3f, 13.2f, 15.2f, 17.3f, paint);
+                break;
+            case CODE:
+                p.moveTo(8.5f, 7); p.lineTo(3.5f, 12); p.lineTo(8.5f, 17);
+                p.moveTo(15.5f, 7); p.lineTo(20.5f, 12); p.lineTo(15.5f, 17);
+                p.moveTo(13.5f, 5); p.lineTo(10.5f, 19);
+                canvas.drawPath(p, paint);
+                break;
+            case BP:
+                canvas.drawArc(new RectF(4, 5, 20, 21), 180, 180, false, paint);
+                canvas.drawLine(12, 13, 16, 9, paint);
+                paint.setStyle(Paint.Style.FILL);
+                canvas.drawCircle(12, 13, 1.6f, paint);
+                paint.setStyle(Paint.Style.STROKE);
+                canvas.drawLine(4, 17, 20, 17, paint);
                 break;
             default:
                 canvas.drawCircle(12, 12, 8, paint);

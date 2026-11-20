@@ -1,18 +1,15 @@
 package com.luiz.w26;
 
 import android.Manifest;
-import android.app.Activity;
 import android.app.Notification;
 import android.app.NotificationChannel;
 import android.app.NotificationManager;
 import android.content.Intent;
 import android.content.IntentFilter;
 import android.content.pm.PackageManager;
-import android.content.res.ColorStateList;
 import android.graphics.Color;
 import android.graphics.Typeface;
 import android.graphics.drawable.GradientDrawable;
-import android.graphics.drawable.RippleDrawable;
 import android.media.AudioManager;
 import android.media.Ringtone;
 import android.media.RingtoneManager;
@@ -29,65 +26,39 @@ import android.view.KeyEvent;
 import android.view.View;
 import android.view.ViewGroup;
 import android.widget.ArrayAdapter;
-import android.widget.Button;
 import android.widget.EditText;
 import android.widget.FrameLayout;
-import android.widget.ImageView;
 import android.widget.LinearLayout;
 import android.widget.ScrollView;
 import android.widget.Spinner;
 import android.widget.Switch;
 import android.widget.TextView;
+import android.widget.Toast;
 
-/** W26 Bancada — companion do relogio estilo Da Fit: dashboard + abas (dispositivo,
- *  mostradores, ajustes, console) e sincronizacao celular<->relogio. */
-public class MainActivity extends Activity implements W26.Listener {
-    private static final String DEFAULT_MAC = "C2:BA:45:15:C8:F9";
-    private static final String DEFAULT_CLASSIC = "06:87:E6:0C:62:61";
+/** W26 Bancada — companion do relogio: dashboard, saude (BPM/passos/sono/SpO2/temp),
+ *  dispositivo + apps MRE, mostradores, ajustes e console com log persistente + API. */
+public class MainActivity extends Ui implements W26.Listener, Health.Callback, Apps.Callback {
     private static final int REQ_VXP = 7;
+    private static final int TAB_HOME = 0, TAB_HEALTH = 1, TAB_DEVICE = 2, TAB_DIAL = 3,
+            TAB_SETTINGS = 4, TAB_CONSOLE = 5, NUM_TABS = 6;
 
-    private static final int BG = 0xFF080C12;
-    private static final int CARD = 0xFF121A24;
-    private static final int CARD2 = 0xFF0E151E;
-    private static final int STROKE = 0xFF1E2A38;
-    private static final int FIELD = 0xFF0B1119;
-    private static final int GHOST = 0xFF1A2430;
-    private static final int ACCENT = 0xFF3D7EFF;
-    private static final int ACCENT2 = 0xFF1B2C50;
-    private static final int GREEN = 0xFF2DD4A7;
-    private static final int WARN = 0xFFF0616D;
-    private static final int AMBER = 0xFFF5B942;
-    private static final int TEXT = 0xFFEDF2F8;
-    private static final int MUTED = 0xFF7E8CA0;
-    private static final int DARK = 0xFF080C12;
-
-    private static final int TAB_HOME = 0, TAB_DEVICE = 1, TAB_DIAL = 2, TAB_SETTINGS = 3,
-            TAB_NOTIF = 4, TAB_CONSOLE = 5, NUM_TABS = 6;
-
-    private TextView stateView;
-    private TextView watchStateView;
-    private TextView watchBattView;
-    private TextView phoneBattView;
-    private TextView gpsView;
-    private TextView lastSyncView;
-    private TextView notifView;
-    private TextView notifAccessView;
-    private TextView finderView;
-    private TextView logView;
-    private ScrollView logScroll;
-    private EditText macView;
-    private EditText classicView;
-    private EditText tjdCmd;
-    private EditText mtkHex;
-    private EditText vxpName;
-    private Spinner facePreset;
-    private TextView faceInfo;
-    private Switch autoSyncSwitch;
-    private Switch notifSwitch;
-    private Switch skipSystemSwitch;
+    private TextView stateView, watchStateView, watchBattView, phoneBattView, lastSyncView, gpsView, notifView;
+    private TextView homeSteps, homeHr;
+    private Ring watchRing;
+    private TextView hSteps, hHr, hSleep, hCal, hSpo2, hTemp, hBp, hDistance;
+    private Chart stepsChart, hrChart;
+    private LinearLayout deviceInfoBox, appsBox;
+    private TextView appsCountView, bleChip, sppChip;
+    private EditText macView, classicView, tjdCmd, mtkHex, vxpName;
+    private Spinner facePreset, logDay;
+    private Switch autoSyncSwitch, autoConnectSwitch, healthAutoSwitch, notifSwitch, skipSystemSwitch, apiSwitch;
+    private TextView notifAccessView, finderView, apiStatusView;
     private LinearLayout notifAppList;
     private boolean notifAppsBuilt;
-    private Ring watchRing;
+    private TextView logView;
+    private ScrollView logScroll;
+    private final StringBuilder liveLog = new StringBuilder();
+    private boolean logLive = true;
 
     private FrameLayout pages;
     private final View[] pageViews = new View[NUM_TABS];
@@ -103,21 +74,32 @@ public class MainActivity extends Activity implements W26.Listener {
     private final Runnable periodic = new Runnable() {
         @Override
         public void run() {
-            if (W26.get().isConnected()) W26.get().battery();
             refreshStatus();
-            ui.postDelayed(this, 30000);
+            if (currentTab == TAB_HEALTH) refreshHealth();
+            if (currentTab == TAB_DEVICE) refreshDevice();
+            if (currentTab == TAB_CONSOLE && logLive) refreshLog();
+            ui.postDelayed(this, 5000);
         }
     };
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
-        W26.get().setListener(this);
+        LogStore.init(this);
+        Health.get().init(this);
+        Apps.get().init();
+        W26.get().addListener(this);
+        Health.get().addCallback(this);
+        Apps.get().addCallback(this);
         createChannel();
         setContentView(buildUi());
         requestPermissions();
+        LinkSvc.start(this);
         refreshFinder();
         refreshStatus();
+        refreshHealth();
+        refreshDevice();
+        refreshApps();
     }
 
     @Override
@@ -125,8 +107,9 @@ public class MainActivity extends Activity implements W26.Listener {
         super.onResume();
         refreshFinder();
         refreshStatus();
+        refreshHealth();
         ui.removeCallbacks(periodic);
-        ui.postDelayed(periodic, 30000);
+        ui.postDelayed(periodic, 5000);
     }
 
     @Override
@@ -135,21 +118,32 @@ public class MainActivity extends Activity implements W26.Listener {
         ui.removeCallbacks(periodic);
     }
 
-    // ---- estrutura principal: header + paginas + barra de abas ----
+    @Override
+    protected void onDestroy() {
+        W26.get().removeListener(this);
+        Health.get().removeCallback(this);
+        Apps.get().removeCallback(this);
+        super.onDestroy();
+    }
+
+    // ---- estrutura ----
 
     private View buildUi() {
         LinearLayout root = new LinearLayout(this);
         root.setOrientation(LinearLayout.VERTICAL);
         root.setBackgroundColor(BG);
-
+        // targetSdk 36: Android 15+ forca edge-to-edge; respeita barra de status/navegacao.
+        root.setOnApplyWindowInsetsListener((v, insets) -> {
+            v.setPadding(0, insets.getSystemWindowInsetTop(), 0, insets.getSystemWindowInsetBottom());
+            return insets;
+        });
         root.addView(buildHeader());
-
         pages = new FrameLayout(this);
         pageViews[TAB_HOME] = pageHome();
+        pageViews[TAB_HEALTH] = pageHealth();
         pageViews[TAB_DEVICE] = pageDevice();
         pageViews[TAB_DIAL] = pageDial();
         pageViews[TAB_SETTINGS] = pageSettings();
-        pageViews[TAB_NOTIF] = pageNotif();
         pageViews[TAB_CONSOLE] = pageConsole();
         for (View v : pageViews) {
             v.setVisibility(View.GONE);
@@ -158,7 +152,6 @@ public class MainActivity extends Activity implements W26.Listener {
         }
         root.addView(pages, new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f));
-
         root.addView(buildTabBar());
         selectTab(TAB_HOME);
         return root;
@@ -169,12 +162,9 @@ public class MainActivity extends Activity implements W26.Listener {
         header.setOrientation(LinearLayout.HORIZONTAL);
         header.setGravity(Gravity.CENTER_VERTICAL);
         header.setPadding(dp(18), dp(14), dp(16), dp(10));
-
-        ImageView logo = icon(Icon.WATCH, ACCENT, 30);
         LinearLayout.LayoutParams llp = new LinearLayout.LayoutParams(dp(30), dp(30));
         llp.rightMargin = dp(10);
-        header.addView(logo, llp);
-
+        header.addView(icon(Icon.WATCH, ACCENT, 30), llp);
         LinearLayout titles = new LinearLayout(this);
         titles.setOrientation(LinearLayout.VERTICAL);
         TextView title = new TextView(this);
@@ -189,7 +179,6 @@ public class MainActivity extends Activity implements W26.Listener {
         sub.setTextColor(MUTED);
         titles.addView(sub);
         header.addView(titles, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
-
         stateView = chip("desconectado", GHOST, MUTED);
         header.addView(stateView);
         return header;
@@ -199,30 +188,25 @@ public class MainActivity extends Activity implements W26.Listener {
         LinearLayout bar = new LinearLayout(this);
         bar.setOrientation(LinearLayout.HORIZONTAL);
         bar.setBackgroundColor(CARD2);
-        bar.setPadding(dp(6), dp(7), dp(6), dp(9));
-        GradientDrawable top = new GradientDrawable();
-        top.setColor(CARD2);
-        bar.setBackground(top);
-        // linha superior sutil
+        bar.setPadding(dp(4), dp(7), dp(4), dp(9));
         View divider = new View(this);
         divider.setBackgroundColor(STROKE);
-
-        String[] labels = {"Início", "Dispositivo", "Mostradores", "Ajustes", "Notif.", "Console"};
-        int[] icons = {Icon.HOME, Icon.BT, Icon.DIAL, Icon.SLIDERS, Icon.BELL, Icon.TERMINAL};
+        String[] labels = {"Início", "Saúde", "Dispositivo", "Mostradores", "Ajustes", "Console"};
+        int[] icons = {Icon.HOME, Icon.HEART, Icon.BT, Icon.DIAL, Icon.SLIDERS, Icon.TERMINAL};
         for (int i = 0; i < NUM_TABS; i++) {
             final int idx = i;
             LinearLayout tab = new LinearLayout(this);
             tab.setOrientation(LinearLayout.VERTICAL);
             tab.setGravity(Gravity.CENTER);
-            tab.setPadding(dp(2), dp(7), dp(2), dp(6));
+            tab.setPadding(dp(1), dp(7), dp(1), dp(6));
             tab.setOnClickListener(v -> selectTab(idx));
-            Icon ic = new Icon(icons[i], MUTED, getResources().getDisplayMetrics().density);
-            ImageView iv = new ImageView(this);
+            Icon ic = new Icon(icons[i], MUTED, density());
+            android.widget.ImageView iv = new android.widget.ImageView(this);
             iv.setImageDrawable(ic);
-            tab.addView(iv, new LinearLayout.LayoutParams(dp(23), dp(23)));
+            tab.addView(iv, new LinearLayout.LayoutParams(dp(22), dp(22)));
             TextView lab = new TextView(this);
             lab.setText(labels[i]);
-            lab.setTextSize(10);
+            lab.setTextSize(9);
             lab.setTextColor(MUTED);
             lab.setTypeface(Typeface.DEFAULT_BOLD);
             LinearLayout.LayoutParams tlp = new LinearLayout.LayoutParams(
@@ -244,7 +228,13 @@ public class MainActivity extends Activity implements W26.Listener {
     private void selectTab(int idx) {
         if (idx == currentTab) return;
         currentTab = idx;
-        if (idx == TAB_NOTIF && !notifAppsBuilt) buildNotifApps();
+        if (idx == TAB_SETTINGS && !notifAppsBuilt) buildNotifApps();
+        if (idx == TAB_HEALTH) refreshHealth();
+        if (idx == TAB_DEVICE) {
+            refreshDevice();
+            refreshApps();
+        }
+        if (idx == TAB_CONSOLE) refreshLog();
         for (int i = 0; i < NUM_TABS; i++) {
             pageViews[i].setVisibility(i == idx ? View.VISIBLE : View.GONE);
             boolean sel = i == idx;
@@ -257,12 +247,10 @@ public class MainActivity extends Activity implements W26.Listener {
         }
     }
 
-    // ---- pagina: INICIO (dashboard) ----
+    // ---- INICIO ----
 
     private View pageHome() {
         LinearLayout c = pageContainer();
-
-        // Hero card com gradiente + anel de bateria
         LinearLayout hero = new LinearLayout(this);
         hero.setOrientation(LinearLayout.HORIZONTAL);
         hero.setGravity(Gravity.CENTER_VERTICAL);
@@ -275,7 +263,6 @@ public class MainActivity extends Activity implements W26.Listener {
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
         hlp.bottomMargin = dp(14);
         hero.setLayoutParams(hlp);
-
         LinearLayout hinfo = new LinearLayout(this);
         hinfo.setOrientation(LinearLayout.VERTICAL);
         TextView hname = new TextView(this);
@@ -295,9 +282,8 @@ public class MainActivity extends Activity implements W26.Listener {
         watchStateView = chip("desconectado", 0x33FFFFFF, 0xFFFFFFFF);
         hinfo.addView(watchStateView);
         hero.addView(hinfo, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
-
         FrameLayout ringWrap = new FrameLayout(this);
-        watchRing = new Ring(0x33FFFFFF, 0xFFFFFFFF, getResources().getDisplayMetrics().density);
+        watchRing = new Ring(0x33FFFFFF, 0xFFFFFFFF, density());
         ringWrap.setBackground(watchRing);
         watchBattView = new TextView(this);
         watchBattView.setText("—");
@@ -320,87 +306,187 @@ public class MainActivity extends Activity implements W26.Listener {
         hero.addView(ringWrap, new LinearLayout.LayoutParams(dp(94), dp(94)));
         c.addView(hero);
 
-        // Acoes rapidas (grade 2x2)
         c.addView(sectionTitle("Ações rápidas"));
         c.addView(row(
-                quickTile(Icon.SYNC, "Sincronizar", v -> {
-                    W26.get().syncTime();
-                    W26.get().battery();
-                    Prefs.markSync(this);
-                    refreshStatus();
-                    log("sync: hora + bateria pedidos");
-                }),
+                quickTile(Icon.SYNC, "Sincronizar", v -> doSync()),
                 quickTile(Icon.PIN, "Achar relógio", v -> W26.get().alertWatch(2))));
         c.addView(row(
                 quickTile(Icon.BELL, "Achar celular", v -> alertPhone()),
-                quickTile(Icon.MAP, "Enviar clima", v -> Weather.fetchAndPush(this))));
+                quickTile(Icon.MAP, "Clima no relógio", v -> Weather.fetchAndPush(this))));
 
-        // Estatisticas
         c.addView(sectionTitle("Visão geral"));
+        homeSteps = statValue("—");
+        homeHr = statValue("—");
         phoneBattView = statValue("—");
         lastSyncView = statValue("—");
         gpsView = statValue("—");
         notifView = statValue("—");
+        c.addView(row(statTile("Passos hoje", homeSteps), statTile("BPM", homeHr)));
         c.addView(row(statTile("Bateria celular", phoneBattView), statTile("Última sync", lastSyncView)));
         c.addView(row(statTile("GPS", gpsView), statTile("Notificações", notifView)));
 
-        // Atalhos
-        c.addView(linkCard(Icon.DIAL, "Mostrador digital", "Fundos prontos + estatísticas nativas", TAB_DIAL));
-        c.addView(linkCard(Icon.BELL, "Notificações", "Escolha os apps e corte carga/mídia", TAB_NOTIF));
-
+        c.addView(linkCard(Icon.HEART, "Saúde", "BPM, passos, sono, SpO2 e temperatura", v -> selectTab(TAB_HEALTH)));
+        c.addView(linkCard(Icon.DIAL, "Mostrador digital", "Fundos prontos + estatísticas nativas", v -> selectTab(TAB_DIAL)));
         return scroll(c);
     }
 
-    // ---- pagina: DISPOSITIVO (conexao) ----
+    // ---- SAUDE ----
+
+    private View pageHealth() {
+        LinearLayout c = pageContainer();
+        LinearLayout today = card();
+        today.addView(sectionTitle("Hoje"));
+        hSteps = statValue("—");
+        hHr = statValue("—");
+        hSleep = statValue("—");
+        hCal = statValue("—");
+        hSpo2 = statValue("—");
+        hTemp = statValue("—");
+        hBp = statValue("—");
+        hDistance = statValue("—");
+        today.addView(row(
+                healthTile(Icon.STEPS, ACCENT, "Passos", hSteps, "passos"),
+                healthTile(Icon.HEART, WARN, "BPM", hHr, "bpm médio")));
+        today.addView(row(
+                healthTile(Icon.MOON, PURPLE, "Sono", hSleep, "horas"),
+                healthTile(Icon.FLAME, AMBER, "Calorias", hCal, "kcal")));
+        today.addView(row(
+                healthTile(Icon.DROP, ACCENT, "SpO2", hSpo2, "% oxigênio"),
+                healthTile(Icon.TEMP, GREEN, "Temperatura", hTemp, "°C corporal")));
+        today.addView(row(
+                healthTile(Icon.BP, WARN, "Pressão", hBp, "mmHg"),
+                healthTile(Icon.MAP, GREEN, "Distância", hDistance, "km")));
+        c.addView(today);
+
+        LinearLayout measure = card();
+        measure.addView(sectionTitle("Medir agora no relógio"));
+        measure.addView(note("O relógio mede na hora e envia o resultado. Fique parado durante a medição."));
+        measure.addView(row(
+                primaryBtn("BPM", v -> Health.get().measure("hr")),
+                ghostBtn("Pressão", v -> Health.get().measure("bp"))));
+        measure.addView(row(
+                ghostBtn("SpO2", v -> Health.get().measure("spo2")),
+                ghostBtn("Temperatura", v -> Health.get().measure("temp"))));
+        c.addView(measure);
+
+        LinearLayout stepsCard = card();
+        stepsCard.addView(sectionTitle("Passos — 7 dias"));
+        stepsChart = new Chart(this, density());
+        stepsCard.addView(stepsChart, new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, dp(150)));
+        c.addView(stepsCard);
+
+        LinearLayout hrCard = card();
+        hrCard.addView(sectionTitle("BPM — 7 dias"));
+        hrChart = new Chart(this, density());
+        hrCard.addView(hrChart, new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, dp(150)));
+        c.addView(hrCard);
+
+        LinearLayout sync = card();
+        sync.addView(sectionTitle("Sincronização de saúde"));
+        healthAutoSwitch = makeSwitch(Prefs.healthAuto(this));
+        healthAutoSwitch.setOnCheckedChangeListener((b, checked) -> Prefs.setHealthAuto(this, checked));
+        sync.addView(toggleRow("Sincronizar ao conectar e periodicamente", healthAutoSwitch));
+        sync.addView(primaryBtn("Sincronizar saúde agora", v -> Health.get().syncAll()));
+        sync.addView(note("Dados vêm do relógio via Bluetooth (passos/sono/BPM/SpO2/temperatura). "
+                + "O histórico fica salvo neste celular por dia."));
+        c.addView(sync);
+        return scroll(c);
+    }
+
+    // ---- DISPOSITIVO ----
 
     private View pageDevice() {
         LinearLayout c = pageContainer();
-
         LinearLayout conn = card();
         conn.addView(sectionTitle("Conexão"));
-        macView = field(DEFAULT_MAC);
-        classicView = field(DEFAULT_CLASSIC);
+        LinearLayout chips = new LinearLayout(this);
+        chips.setOrientation(LinearLayout.HORIZONTAL);
+        bleChip = chip("BLE: —", GHOST, MUTED);
+        sppChip = chip("SPP: —", GHOST, MUTED);
+        LinearLayout.LayoutParams clp = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        clp.rightMargin = dp(8);
+        chips.addView(bleChip, clp);
+        chips.addView(sppChip);
+        conn.addView(chips);
+        macView = field(Prefs.bleMac(this));
+        classicView = field(Prefs.sppMac(this));
         conn.addView(labeled("BLE (GATT)", macView));
         conn.addView(labeled("Clássico (SPP)", classicView));
         conn.addView(row(
-                primaryBtn("Conectar BLE", v -> W26.get().connect(this, macView.getText().toString().trim())),
-                primaryBtn("Conectar SPP", v -> W26.get().connectSpp(this, classicView.getText().toString().trim()))));
-        conn.addView(row(
-                ghostBtn("Desconectar BLE", v -> W26.get().disconnect()),
-                ghostBtn("Desconectar SPP", v -> W26.get().disconnectSpp())));
+                primaryBtn("Conectar BLE", v -> {
+                    saveMacs();
+                    Prefs.setWantConn(this, true);
+                    LinkSvc.start(this);
+                    W26.get().connect(this, macView.getText().toString().trim());
+                }),
+                primaryBtn("Conectar SPP", v -> {
+                    saveMacs();
+                    Prefs.setWantConn(this, true);
+                    LinkSvc.start(this);
+                    W26.get().connectSpp(this, classicView.getText().toString().trim());
+                })));
+        conn.addView(ghostBtn("Desconectar tudo", v -> {
+            Prefs.setWantConn(this, false);
+            W26.get().disconnect();
+            W26.get().disconnectSpp();
+        }));
+        autoConnectSwitch = makeSwitch(Prefs.autoConnect(this));
+        autoConnectSwitch.setOnCheckedChangeListener((b, checked) -> {
+            Prefs.setAutoConnect(this, checked);
+            if (checked) LinkSvc.start(this);
+        });
+        conn.addView(toggleRow("Reconectar sozinho (BLE + SPP)", autoConnectSwitch));
+        conn.addView(note("Com a reconexão automática, o app conecta BLE e SPP sozinho quando o "
+                + "relógio aparece no Bluetooth, e mantém o link mesmo com o app fechado."));
         c.addView(conn);
 
         LinearLayout info = card();
-        info.addView(sectionTitle("Sobre o dispositivo"));
-        info.addView(infoRow("Modelo", "Watch 6 / W26 (clone MTK)"));
-        info.addView(infoRow("Firmware", "W26_B_BL6133_201128_1"));
-        info.addView(infoRow("Tela", "176 × 220"));
-        info.addView(infoRow("Plataforma", "MRE 2.0"));
-        info.addView(infoRow("BLE MAC", DEFAULT_MAC));
-        info.addView(infoRow("SPP MAC", DEFAULT_CLASSIC));
+        info.addView(sectionTitle("Sobre o relógio"));
+        deviceInfoBox = new LinearLayout(this);
+        deviceInfoBox.setOrientation(LinearLayout.VERTICAL);
+        info.addView(deviceInfoBox);
+        info.addView(ghostBtn("Atualizar informações", v -> {
+            W26.get().requestDeviceInfo();
+            W26.get().sendTjd("X0,GET,0");
+            W26.get().sendTjd("X0,GET,5");
+            W26.get().battery();
+            ui.postDelayed(this::refreshDevice, 1500);
+        }));
         c.addView(info);
 
-        LinearLayout tip = card();
-        tip.addView(sectionTitle("Como conectar"));
-        TextView t = new TextView(this);
-        t.setText("1. Pareie o relógio no Bluetooth do celular.\n"
-                + "2. Toque em “Conectar BLE” para notificações, hora, bateria e finder.\n"
-                + "3. Toque em “Conectar SPP” para instalar mostradores/apps (MREE).\n"
-                + "Os dois canais podem ficar ativos ao mesmo tempo.");
-        t.setTextSize(12);
-        t.setTextColor(MUTED);
-        t.setLineSpacing(dp(3), 1f);
-        tip.addView(t);
-        c.addView(tip);
-
+        LinearLayout apps = card();
+        apps.addView(sectionTitle("Apps & espaço"));
+        appsCountView = new TextView(this);
+        appsCountView.setTextSize(13);
+        appsCountView.setTextColor(TEXT);
+        appsCountView.setPadding(0, 0, 0, dp(6));
+        apps.addView(appsCountView);
+        apps.addView(note("Apps de fábrica não podem ser removidos. “Liberar espaço” desinstala "
+                + "só os mostradores/apps que você instalou."));
+        apps.addView(row(
+                primaryBtn("Atualizar lista", v -> Apps.get().refresh()),
+                dangerBtn("Liberar espaço", v -> {
+                    Apps.get().freeSpace();
+                    ui.postDelayed(this::refreshApps, 2500);
+                })));
+        appsBox = new LinearLayout(this);
+        appsBox.setOrientation(LinearLayout.VERTICAL);
+        apps.addView(appsBox);
+        c.addView(apps);
         return scroll(c);
     }
 
-    // ---- pagina: MOSTRADORES ----
+    private void saveMacs() {
+        Prefs.setMacs(this, macView.getText().toString().trim(), classicView.getText().toString().trim());
+    }
+
+    // ---- MOSTRADORES ----
 
     private View pageDial() {
         LinearLayout c = pageContainer();
-
         LinearLayout face = card();
         face.addView(sectionTitle("Criar mostrador digital"));
         facePreset = new Spinner(this);
@@ -410,20 +496,13 @@ public class MainActivity extends Activity implements W26.Listener {
         pa.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item);
         facePreset.setAdapter(pa);
         face.addView(labeled("Fundo", facePreset));
-        faceInfo = new TextView(this);
-        faceInfo.setText("Digital com horas + estatísticas (passos/HR/data) e atalhos de toque "
-                + "(música/HR) nativos do relógio. Os dois fundos já vêm no template; o relógio "
-                + "alterna entre eles pelo toque.");
-        faceInfo.setTextSize(12);
-        faceInfo.setTextColor(MUTED);
-        faceInfo.setLineSpacing(dp(2), 1f);
-        faceInfo.setPadding(0, dp(6), 0, dp(4));
-        face.addView(faceInfo);
+        face.addView(note("Digital com horas + estatísticas (passos/HR/data) e atalhos de toque "
+                + "(música/HR) nativos do relógio. O relógio alterna entre os dois fundos pelo toque."));
         face.addView(primaryBtn("Gerar e instalar no relógio", v -> installFace()));
         c.addView(face);
 
         LinearLayout mre = card();
-        mre.addView(sectionTitle("Mostradores & apps (MRE / SPP)"));
+        mre.addView(sectionTitle("Mostradores & apps de teste (MRE / SPP)"));
         mre.addView(row(
                 ghostBtn("LuizFace RES", v -> installAsset("luizface3.vxp", "luizface3.vxp")),
                 ghostBtn("Face REF", v -> installAsset("ref.vxp", "refface.vxp"))));
@@ -451,42 +530,40 @@ public class MainActivity extends Activity implements W26.Listener {
                 dangerBtn("Desinstalar TODOS", v -> W26.get().mreeUninstallAll()),
                 ghostBtn("Limpar testes", v -> cleanTests())));
         c.addView(mre);
-
         return scroll(c);
     }
 
-    // ---- pagina: AJUSTES (sync + finder) ----
+    // ---- AJUSTES ----
 
     private View pageSettings() {
         LinearLayout c = pageContainer();
-
         LinearLayout sync = card();
         sync.addView(sectionTitle("Sincronização"));
         autoSyncSwitch = makeSwitch(Prefs.autoSync(this));
         autoSyncSwitch.setOnCheckedChangeListener((b, checked) -> Prefs.setAutoSync(this, checked));
         sync.addView(toggleRow("Hora automática ao conectar", autoSyncSwitch));
         sync.addView(row(
-                primaryBtn("Sincronizar agora", v -> {
-                    W26.get().syncTime();
-                    W26.get().battery();
-                    Prefs.markSync(this);
-                    refreshStatus();
-                    log("sync: hora + bateria pedidos");
-                }),
+                primaryBtn("Sincronizar agora", v -> doSync()),
                 ghostBtn("Bateria do relógio", v -> W26.get().battery())));
-        sync.addView(row(
-                ghostBtn("Testar alerta celular", v -> alertPhone()),
-                ghostBtn("Enviar clima", v -> Weather.fetchAndPush(this))));
         c.addView(sync);
+
+        LinearLayout weather = card();
+        weather.addView(sectionTitle("Clima no relógio"));
+        weather.addView(note("“Enviar clima” manda a previsão de 6 dias para a tela de Clima do "
+                + "próprio relógio (ícone, mín/máx por dia). Usa o GPS do celular para achar sua "
+                + "cidade e o serviço grátis Open-Meteo. Não é um widget do celular."));
+        weather.addView(row(
+                primaryBtn("Enviar clima", v -> Weather.fetchAndPush(this)),
+                ghostBtn("Atualizar GPS", v -> {
+                    Finder.capture(this);
+                    refreshFinder();
+                    refreshStatus();
+                })));
+        c.addView(weather);
 
         LinearLayout find = card();
         find.addView(sectionTitle("Finder / localizador"));
-        TextView note = new TextView(this);
-        note.setText("O relógio não tem GPS: guardamos a última posição do celular e fazemos o relógio vibrar.");
-        note.setTextSize(12);
-        note.setTextColor(MUTED);
-        note.setPadding(0, 0, 0, dp(8));
-        find.addView(note);
+        find.addView(note("O relógio não tem GPS: guardamos a última posição do celular e fazemos o relógio vibrar."));
         finderView = new TextView(this);
         finderView.setTextSize(13);
         finderView.setTextColor(TEXT);
@@ -494,142 +571,73 @@ public class MainActivity extends Activity implements W26.Listener {
         find.addView(finderView);
         find.addView(row(
                 primaryBtn("Fazer vibrar", v -> W26.get().alertWatch(2)),
-                ghostBtn("Atualizar GPS", v -> {
-                    Finder.capture(this);
-                    refreshFinder();
-                    refreshStatus();
-                    log("finder: pedido fix de GPS");
+                ghostBtn("Abrir no mapa", v -> {
+                    if (!Finder.hasFix(this)) {
+                        log("finder: sem posição guardada");
+                        return;
+                    }
+                    try {
+                        startActivity(Finder.mapsIntent(this));
+                    } catch (Exception e) {
+                        log("finder: sem app de mapa (" + e.getMessage() + ")");
+                    }
                 })));
-        find.addView(ghostBtn("Abrir no mapa", v -> {
-            if (!Finder.hasFix(this)) {
-                log("finder: sem posição guardada");
-                return;
-            }
-            try {
-                startActivity(Finder.mapsIntent(this));
-            } catch (Exception e) {
-                log("finder: sem app de mapa (" + e.getMessage() + ")");
-            }
-        }));
         c.addView(find);
 
-        return scroll(c);
-    }
-
-    // ---- pagina: NOTIFICACOES (filtro por app) ----
-
-    private View pageNotif() {
-        LinearLayout c = pageContainer();
-
-        LinearLayout f = card();
-        f.addView(sectionTitle("Notificações do celular"));
+        LinearLayout notif = card();
+        notif.addView(sectionTitle("Notificações do celular"));
         notifSwitch = makeSwitch(Prefs.notifEnabled(this));
         notifSwitch.setOnCheckedChangeListener((b, checked) -> {
             Prefs.setNotifEnabled(this, checked);
             refreshStatus();
         });
-        f.addView(toggleRow("Encaminhar notificações", notifSwitch));
+        notif.addView(toggleRow("Encaminhar notificações", notifSwitch));
         skipSystemSwitch = makeSwitch(Prefs.notifSkipSystem(this));
         skipSystemSwitch.setOnCheckedChangeListener((b, checked) -> Prefs.setNotifSkipSystem(this, checked));
-        f.addView(toggleRow("Ignorar carga, mídia e progresso", skipSystemSwitch));
+        notif.addView(toggleRow("Ignorar carga, mídia e progresso", skipSystemSwitch));
         notifAccessView = new TextView(this);
         notifAccessView.setTextSize(11);
         notifAccessView.setTextColor(MUTED);
         notifAccessView.setPadding(0, dp(4), 0, dp(6));
-        f.addView(notifAccessView);
-        f.addView(row(
+        notif.addView(notifAccessView);
+        notif.addView(row(
                 ghostBtn("Acesso notificações", v -> startActivity(
                         new Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS))),
                 ghostBtn("Notificação teste", v -> W26.get().notifyWatch(
                         "W26", "Teste do celular", "Se você está lendo isso, funcionou!"))));
-        c.addView(f);
-
-        LinearLayout apps = card();
-        apps.addView(sectionTitle("Apps que o relógio lê"));
-        TextView note = new TextView(this);
-        note.setText("Desligue os apps que não devem vibrar no relógio. O filtro acima já corta "
-                + "avisos de carga, mídia (play/pause) e progresso do sistema.");
-        note.setTextSize(12);
-        note.setTextColor(MUTED);
-        note.setLineSpacing(dp(2), 1f);
-        note.setPadding(0, 0, 0, dp(8));
-        apps.addView(note);
         notifAppList = new LinearLayout(this);
         notifAppList.setOrientation(LinearLayout.VERTICAL);
-        apps.addView(notifAppList);
-        c.addView(apps);
+        notif.addView(notifAppList);
+        c.addView(notif);
 
+        LinearLayout api = card();
+        api.addView(sectionTitle("API interna (diagnóstico)"));
+        apiSwitch = makeSwitch(Prefs.apiEnabled(this));
+        apiSwitch.setOnCheckedChangeListener((b, checked) -> {
+            Prefs.setApiEnabled(this, checked);
+            LinkSvc.applyApi(this);
+            refreshApiStatus();
+        });
+        api.addView(toggleRow("Servidor HTTP em 127.0.0.1:8765", apiSwitch));
+        apiStatusView = new TextView(this);
+        apiStatusView.setTextSize(11);
+        apiStatusView.setTextColor(MUTED);
+        apiStatusView.setPadding(0, dp(4), 0, dp(6));
+        api.addView(apiStatusView);
+        api.addView(note("Do PC: adb forward tcp:8765 tcp:8765 → http://127.0.0.1:8765/\n"
+                + "GET /state · /events?since=0 (tempo real) · /health · /apps · /logs\n"
+                + "POST /tjd?cmd=… · /mtk?text=… · /sync · /alert · /mree/list · /mree/install"));
+        c.addView(api);
         return scroll(c);
     }
 
-    private void buildNotifApps() {
-        notifAppsBuilt = true;
-        PackageManager pm = getPackageManager();
-        Intent main = new Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_LAUNCHER);
-        java.util.Map<String, android.content.pm.ApplicationInfo> map = new java.util.HashMap<>();
-        for (android.content.pm.ResolveInfo ri : pm.queryIntentActivities(main, 0)) {
-            android.content.pm.ApplicationInfo ai = ri.activityInfo.applicationInfo;
-            if (ai.packageName.equals(getPackageName())) continue;
-            map.put(ai.packageName, ai);
-        }
-        java.util.List<android.content.pm.ApplicationInfo> list = new java.util.ArrayList<>(map.values());
-        java.util.Collections.sort(list, (a, b) -> label(pm, a).compareToIgnoreCase(label(pm, b)));
-        java.util.Set<String> blocked = Prefs.notifBlocked(this);
-        for (android.content.pm.ApplicationInfo ai : list)
-            notifAppList.addView(appRow(pm, ai, !blocked.contains(ai.packageName)));
-    }
-
-    private String label(PackageManager pm, android.content.pm.ApplicationInfo ai) {
-        try {
-            return pm.getApplicationLabel(ai).toString();
-        } catch (Exception e) {
-            return ai.packageName;
-        }
-    }
-
-    private View appRow(PackageManager pm, android.content.pm.ApplicationInfo ai, boolean allowed) {
-        LinearLayout r = new LinearLayout(this);
-        r.setOrientation(LinearLayout.HORIZONTAL);
-        r.setGravity(Gravity.CENTER_VERTICAL);
-        r.setPadding(0, dp(7), 0, dp(7));
-        ImageView iv = new ImageView(this);
-        try {
-            iv.setImageDrawable(pm.getApplicationIcon(ai));
-        } catch (Exception e) {
-            iv.setImageDrawable(new Icon(Icon.PLUS, MUTED, getResources().getDisplayMetrics().density));
-        }
-        LinearLayout.LayoutParams ilp = new LinearLayout.LayoutParams(dp(34), dp(34));
-        ilp.rightMargin = dp(12);
-        r.addView(iv, ilp);
-        LinearLayout t = new LinearLayout(this);
-        t.setOrientation(LinearLayout.VERTICAL);
-        TextView name = new TextView(this);
-        name.setText(label(pm, ai));
-        name.setTextSize(14);
-        name.setTextColor(TEXT);
-        name.setSingleLine(true);
-        t.addView(name);
-        TextView pkg = new TextView(this);
-        pkg.setText(ai.packageName);
-        pkg.setTextSize(10);
-        pkg.setTextColor(MUTED);
-        pkg.setSingleLine(true);
-        t.addView(pkg);
-        r.addView(t, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
-        Switch sw = makeSwitch(allowed);
-        sw.setOnCheckedChangeListener((b, checked) -> Prefs.setNotifBlocked(this, ai.packageName, !checked));
-        r.addView(sw);
-        return r;
-    }
-
-    // ---- pagina: CONSOLE (protocolo + log) ----
+    // ---- CONSOLE ----
 
     private View pageConsole() {
         LinearLayout c = pageContainer();
-
         LinearLayout adv = card();
         adv.addView(sectionTitle("Console de protocolo"));
-        tjdCmd = field("X1,LINK");
+        tjdCmd = field("X0,GET,1");
         adv.addView(labeled("TJD (sem $LHBT)", tjdCmd));
         adv.addView(ghostBtn("Enviar TJD", v -> {
             String cmd = tjdCmd.getText().toString().trim();
@@ -646,7 +654,25 @@ public class MainActivity extends Activity implements W26.Listener {
         c.addView(adv);
 
         LinearLayout logCard = card();
-        logCard.addView(sectionTitle("Log"));
+        logCard.addView(sectionTitle("Log persistente (por dia)"));
+        logDay = new Spinner(this);
+        logDay.setOnItemSelectedListener(new android.widget.AdapterView.OnItemSelectedListener() {
+            @Override
+            public void onItemSelected(android.widget.AdapterView<?> p, View v, int pos, long id) {
+                String sel = (String) logDay.getItemAtPosition(pos);
+                logLive = pos == 0;
+                if (logLive) refreshLog();
+                else {
+                    String day = sel.length() >= 10 ? sel.substring(sel.length() - 10) : sel;
+                    logView.setText(LogStore.read(day));
+                }
+            }
+
+            @Override
+            public void onNothingSelected(android.widget.AdapterView<?> p) {
+            }
+        });
+        logCard.addView(labeled("Dia", logDay));
         logView = new TextView(this);
         logView.setTextSize(11);
         logView.setTextColor(MUTED);
@@ -655,13 +681,44 @@ public class MainActivity extends Activity implements W26.Listener {
         logScroll.addView(logView);
         logCard.addView(logScroll, new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, dp(320)));
-        logCard.addView(ghostBtn("Limpar log", v -> logView.setText("")));
+        logCard.addView(row(
+                ghostBtn("Compartilhar", v -> startActivity(LogStore.shareIntent(currentLogDay()))),
+                ghostBtn("Atualizar", v -> refreshLog())));
+        logCard.addView(ghostBtn("Limpar dia", v -> {
+            LogStore.clear(currentLogDay());
+            liveLog.setLength(0);
+            refreshLog();
+        }));
         c.addView(logCard);
-
         return scroll(c);
     }
 
+    private String currentLogDay() {
+        if (logDay == null || logLive) return LogStore.today();
+        String sel = (String) logDay.getSelectedItem();
+        return sel != null && sel.length() >= 10 ? sel.substring(sel.length() - 10) : LogStore.today();
+    }
+
+    private void rebuildLogDays() {
+        if (logDay == null) return;
+        java.util.List<String> days = new java.util.ArrayList<>();
+        days.add("Hoje · " + LogStore.today());
+        for (String d : LogStore.dates()) if (!d.equals(LogStore.today())) days.add(d);
+        ArrayAdapter<String> a = new ArrayAdapter<>(this, android.R.layout.simple_spinner_item, days);
+        a.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item);
+        logDay.setAdapter(a);
+    }
+
     // ---- acoes ----
+
+    private void doSync() {
+        W26.get().syncTime();
+        W26.get().battery();
+        Prefs.markSync(this);
+        Health.get().syncAll();
+        refreshStatus();
+        log("sync: hora + bateria + saúde pedidos");
+    }
 
     private String vxpName() {
         return vxpName.getText().toString().trim();
@@ -680,8 +737,6 @@ public class MainActivity extends Activity implements W26.Listener {
         try {
             byte[] v = FaceBuilder.build(asset(p.asset));
             String name = "lz_" + p.asset.substring(p.asset.indexOf('/') + 1);
-            // O relogio tem pouco espaco para mostradores: libera os presets antes
-            // de instalar o novo (senao o instalador recusa com -1000 / "sem espaco").
             for (FaceBuilder.Preset o : FaceBuilder.PRESETS)
                 W26.get().mreeUninstall("lz_" + o.asset.substring(o.asset.indexOf('/') + 1));
             W26.get().mreeInstall(name, v);
@@ -765,7 +820,7 @@ public class MainActivity extends Activity implements W26.Listener {
         nm.notify(1, n);
     }
 
-    // ---- estado / sync ----
+    // ---- refresh ----
 
     private void refreshFinder() {
         if (finderView != null) finderView.setText(Finder.describe(this));
@@ -785,8 +840,156 @@ public class MainActivity extends Activity implements W26.Listener {
         boolean on = Prefs.notifEnabled(this) && access;
         notifView.setText(on ? "ativo" : "inativo");
         notifView.setTextColor(on ? GREEN : MUTED);
-        notifAccessView.setText(access ? "Acesso a notificações concedido."
-                : "Sem acesso: toque em “Acesso notificações” e ative o W26.");
+        if (notifAccessView != null)
+            notifAccessView.setText(access ? "Acesso a notificações concedido."
+                    : "Sem acesso: toque em “Acesso notificações” e ative o W26.");
+        Health.DayStat d = Health.get().today();
+        homeSteps.setText(d.steps > 0 ? String.valueOf(d.steps) : "—");
+        homeHr.setText(d.hrAvg > 0 ? String.valueOf(Math.round(d.hrAvg)) : "—");
+        boolean ble = W26.get().isConnected();
+        boolean spp = W26.get().isSppUp();
+        setChip(bleChip, "BLE: " + (ble ? "ok" : "—"), ble);
+        setChip(sppChip, "SPP: " + (spp ? "ok" : "—"), spp);
+        refreshApiStatus();
+    }
+
+    private void setChip(TextView chip, String text, boolean up) {
+        if (chip == null) return;
+        chip.setText(text);
+        GradientDrawable g = new GradientDrawable();
+        g.setColor(up ? 0x222DD4A7 : GHOST);
+        g.setCornerRadius(dp(20));
+        chip.setBackground(g);
+        chip.setTextColor(up ? GREEN : MUTED);
+    }
+
+    private void refreshApiStatus() {
+        if (apiStatusView == null) return;
+        apiStatusView.setText(Api.get().isRunning()
+                ? "API ativa em http://127.0.0.1:" + Api.PORT + "/"
+                : "API desligada.");
+        apiStatusView.setTextColor(Api.get().isRunning() ? GREEN : MUTED);
+    }
+
+    private void refreshHealth() {
+        Health.DayStat d = Health.get().today();
+        hSteps.setText(d.steps > 0 ? String.valueOf(d.steps) : "—");
+        hHr.setText(d.hrAvg > 0 ? String.valueOf(Math.round(d.hrAvg)) : "—");
+        hSleep.setText(d.sleepHours > 0 ? String.format(java.util.Locale.ROOT, "%.1f", d.sleepHours) : "—");
+        hCal.setText(d.calorie > 0 ? String.valueOf(Math.round(d.calorie)) : "—");
+        hSpo2.setText(d.spo2 > 0 ? String.valueOf(Math.round(d.spo2)) : "—");
+        hTemp.setText(d.temp > 0 ? String.format(java.util.Locale.ROOT, "%.1f", d.temp) : "—");
+        hBp.setText(d.bpSys > 0 ? Math.round(d.bpSys) + "/" + Math.round(d.bpDia) : "—");
+        if (hDistance != null)
+            hDistance.setText(d.distanceKm > 0 ? String.format(java.util.Locale.ROOT, "%.2f", d.distanceKm) : "—");
+        java.util.List<Health.DayStat> week = Health.get().lastDays(7);
+        float[] steps = new float[7];
+        float[] hr = new float[7];
+        String[] labels = new String[7];
+        String[] wd = {"D", "S", "T", "Q", "Q", "S", "S"};
+        java.util.Calendar cal = java.util.Calendar.getInstance();
+        for (int i = 0; i < 7; i++) {
+            Health.DayStat s = week.get(i);
+            steps[i] = s.steps;
+            hr[i] = (float) s.hrAvg;
+            cal.setTimeInMillis(System.currentTimeMillis() - (6 - i) * 24L * 3600_000L);
+            labels[i] = wd[cal.get(java.util.Calendar.DAY_OF_WEEK) - 1];
+        }
+        stepsChart.setData(steps, labels, ACCENT, Chart.BARS, "passos");
+        hrChart.setData(hr, labels, WARN, Chart.LINE, "bpm");
+    }
+
+    private void refreshDevice() {
+        if (deviceInfoBox == null) return;
+        deviceInfoBox.removeAllViews();
+        java.util.Map<String, String> info = W26.get().info;
+        deviceInfoBox.addView(infoRow("Modelo", or(info.get("model"), "Watch 6 / W26")));
+        deviceInfoBox.addView(infoRow("Marca", or(info.get("brand"), "—")));
+        deviceInfoBox.addView(infoRow("Firmware", or(info.get("version"), or(info.get("firmware"), "W26_B_BL6133_201128_1"))));
+        deviceInfoBox.addView(infoRow("MRE", or(info.get("mre_version"), "2.0")));
+        deviceInfoBox.addView(infoRow("Tela", or(info.get("lcd"), "176 × 220")));
+        deviceInfoBox.addView(infoRow("Memória total", or(info.get("max_memory"), "—")));
+        deviceInfoBox.addView(infoRow("Tipo/capacidades", or(info.get("devType"), "—")));
+        deviceInfoBox.addView(infoRow("Protocolo TJD", or(info.get("protocol"), "—")));
+        deviceInfoBox.addView(infoRow("Sensor BPM", yesno(info.get("heart_rate_sensor"))));
+        deviceInfoBox.addView(infoRow("Sensor temperatura", yesno(info.get("temperature_sensor"))));
+        deviceInfoBox.addView(infoRow("GPS", yesno(info.get("gps"))));
+        deviceInfoBox.addView(infoRow("BLE MAC", Prefs.bleMac(this)));
+        deviceInfoBox.addView(infoRow("SPP MAC", Prefs.sppMac(this)));
+        int wb = W26.get().getWatchBattery();
+        deviceInfoBox.addView(infoRow("Bateria", wb < 0 ? "—" : wb + "%"));
+    }
+
+    private static String or(String a, String b) {
+        return a == null || a.isEmpty() ? b : a;
+    }
+
+    private static String yesno(String v) {
+        if (v == null || v.isEmpty()) return "—";
+        return v.equals("1") || v.equalsIgnoreCase("true") || v.equalsIgnoreCase("yes") ? "sim" : "não";
+    }
+
+    private void refreshApps() {
+        if (appsBox == null) return;
+        java.util.List<Apps.App> list = Apps.get().list();
+        String mem = W26.get().info.get("max_memory");
+        appsCountView.setText(list.size() + " apps · " + Apps.get().removable() + " removíveis"
+                + (mem != null ? " · memória " + mem : ""));
+        appsBox.removeAllViews();
+        if (list.isEmpty()) {
+            appsBox.addView(note("Toque em “Atualizar lista” com o SPP conectado para ver os apps do relógio."));
+            return;
+        }
+        for (Apps.App a : list) appsBox.addView(appRow(a));
+    }
+
+    private View appRow(Apps.App a) {
+        LinearLayout r = new LinearLayout(this);
+        r.setOrientation(LinearLayout.HORIZONTAL);
+        r.setGravity(Gravity.CENTER_VERTICAL);
+        r.setPadding(0, dp(7), 0, dp(7));
+        LinearLayout.LayoutParams iip = new LinearLayout.LayoutParams(dp(26), dp(26));
+        iip.rightMargin = dp(12);
+        r.addView(icon(a.preinstalled ? Icon.WATCH : Icon.APPS, a.preinstalled ? MUTED : ACCENT, 26), iip);
+        LinearLayout t = new LinearLayout(this);
+        t.setOrientation(LinearLayout.VERTICAL);
+        TextView name = new TextView(this);
+        name.setText(a.name);
+        name.setTextSize(13);
+        name.setTextColor(TEXT);
+        name.setSingleLine(true);
+        t.addView(name);
+        TextView sub = new TextView(this);
+        sub.setText((a.ver.isEmpty() ? "" : "v" + a.ver + " · ") + (a.preinstalled ? "fábrica (fixo)" : "instalado"));
+        sub.setTextSize(10);
+        sub.setTextColor(MUTED);
+        t.addView(sub);
+        r.addView(t, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
+        if (!a.preinstalled) {
+            TextView del = new TextView(this);
+            del.setText("Remover");
+            del.setTextSize(12);
+            del.setTextColor(WARN);
+            del.setTypeface(Typeface.DEFAULT_BOLD);
+            del.setPadding(dp(10), dp(6), dp(10), dp(6));
+            del.setOnClickListener(v -> {
+                W26.get().mreeUninstall(a.name);
+                log("removendo " + a.name);
+                ui.postDelayed(this::refreshApps, 2000);
+            });
+            r.addView(del);
+        }
+        return r;
+    }
+
+    private void refreshLog() {
+        if (logView == null) return;
+        rebuildLogDays();
+        if (logLive) {
+            String store = LogStore.read(LogStore.today());
+            logView.setText(store.isEmpty() ? liveLog.toString() : store);
+        }
+        logScroll.post(() -> logScroll.fullScroll(View.FOCUS_DOWN));
     }
 
     private int phoneBattery() {
@@ -802,16 +1005,76 @@ public class MainActivity extends Activity implements W26.Listener {
     }
 
     private boolean notifAccess() {
-        String flat = Settings.Secure.getString(getContentResolver(),
-                "enabled_notification_listeners");
+        String flat = Settings.Secure.getString(getContentResolver(), "enabled_notification_listeners");
         return flat != null && flat.contains(getPackageName());
     }
+
+    private void buildNotifApps() {
+        notifAppsBuilt = true;
+        PackageManager pm = getPackageManager();
+        Intent main = new Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_LAUNCHER);
+        java.util.Map<String, android.content.pm.ApplicationInfo> map = new java.util.HashMap<>();
+        for (android.content.pm.ResolveInfo ri : pm.queryIntentActivities(main, 0)) {
+            android.content.pm.ApplicationInfo ai = ri.activityInfo.applicationInfo;
+            if (ai.packageName.equals(getPackageName())) continue;
+            map.put(ai.packageName, ai);
+        }
+        java.util.List<android.content.pm.ApplicationInfo> list = new java.util.ArrayList<>(map.values());
+        java.util.Collections.sort(list, (a, b) -> label(pm, a).compareToIgnoreCase(label(pm, b)));
+        java.util.Set<String> blocked = Prefs.notifBlocked(this);
+        for (android.content.pm.ApplicationInfo ai : list)
+            notifAppList.addView(appNotifRow(pm, ai, !blocked.contains(ai.packageName)));
+    }
+
+    private String label(PackageManager pm, android.content.pm.ApplicationInfo ai) {
+        try {
+            return pm.getApplicationLabel(ai).toString();
+        } catch (Exception e) {
+            return ai.packageName;
+        }
+    }
+
+    private View appNotifRow(PackageManager pm, android.content.pm.ApplicationInfo ai, boolean allowed) {
+        LinearLayout r = new LinearLayout(this);
+        r.setOrientation(LinearLayout.HORIZONTAL);
+        r.setGravity(Gravity.CENTER_VERTICAL);
+        r.setPadding(0, dp(7), 0, dp(7));
+        android.widget.ImageView iv = new android.widget.ImageView(this);
+        try {
+            iv.setImageDrawable(pm.getApplicationIcon(ai));
+        } catch (Exception e) {
+            iv.setImageDrawable(new Icon(Icon.PLUS, MUTED, density()));
+        }
+        LinearLayout.LayoutParams ilp = new LinearLayout.LayoutParams(dp(34), dp(34));
+        ilp.rightMargin = dp(12);
+        r.addView(iv, ilp);
+        LinearLayout t = new LinearLayout(this);
+        t.setOrientation(LinearLayout.VERTICAL);
+        TextView name = new TextView(this);
+        name.setText(label(pm, ai));
+        name.setTextSize(14);
+        name.setTextColor(TEXT);
+        name.setSingleLine(true);
+        t.addView(name);
+        TextView pkg = new TextView(this);
+        pkg.setText(ai.packageName);
+        pkg.setTextSize(10);
+        pkg.setTextColor(MUTED);
+        pkg.setSingleLine(true);
+        t.addView(pkg);
+        r.addView(t, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
+        Switch sw = makeSwitch(allowed);
+        sw.setOnCheckedChangeListener((b, checked) -> Prefs.setNotifBlocked(this, ai.packageName, !checked));
+        r.addView(sw);
+        return r;
+    }
+
+    // ---- callbacks ----
 
     @Override
     public void onBattery(int percent) {
         watchBattView.setText(percent + "%");
         if (watchRing != null) watchRing.setPercent(percent);
-        log("bateria do relógio: " + percent + "%");
     }
 
     @Override
@@ -821,7 +1084,6 @@ public class MainActivity extends Activity implements W26.Listener {
             alertPhone();
             notifyPhone("Encontrar celular", "O relógio pediu para localizar este celular.");
         } else {
-            log("relógio parou o alerta");
             stopAlert();
         }
     }
@@ -843,330 +1105,23 @@ public class MainActivity extends Activity implements W26.Listener {
         log("música: " + action);
     }
 
-    // ---- helpers de UI ----
-
-    private int dp(int v) {
-        return (int) (v * getResources().getDisplayMetrics().density);
-    }
-
-    private LinearLayout pageContainer() {
-        LinearLayout c = new LinearLayout(this);
-        c.setOrientation(LinearLayout.VERTICAL);
-        c.setPadding(dp(16), dp(4), dp(16), dp(18));
-        return c;
-    }
-
-    private ScrollView scroll(View content) {
-        ScrollView s = new ScrollView(this);
-        s.setFillViewport(true);
-        s.setVerticalScrollBarEnabled(false);
-        s.addView(content, new ScrollView.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
-        return s;
-    }
-
-    private ImageView icon(int kind, int color, int sizeDp) {
-        ImageView iv = new ImageView(this);
-        iv.setImageDrawable(new Icon(kind, color, getResources().getDisplayMetrics().density));
-        return iv;
-    }
-
-    private LinearLayout card() {
-        LinearLayout c = new LinearLayout(this);
-        c.setOrientation(LinearLayout.VERTICAL);
-        GradientDrawable bg = new GradientDrawable();
-        bg.setColor(CARD);
-        bg.setCornerRadius(dp(20));
-        bg.setStroke(dp(1), STROKE);
-        c.setBackground(bg);
-        c.setPadding(dp(17), dp(15), dp(17), dp(17));
-        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
-        lp.bottomMargin = dp(13);
-        c.setLayoutParams(lp);
-        return c;
-    }
-
-    private View quickTile(int iconKind, String label, View.OnClickListener l) {
-        LinearLayout t = new LinearLayout(this);
-        t.setOrientation(LinearLayout.VERTICAL);
-        t.setGravity(Gravity.CENTER);
-        GradientDrawable bg = new GradientDrawable();
-        bg.setColor(CARD);
-        bg.setCornerRadius(dp(18));
-        bg.setStroke(dp(1), STROKE);
-        t.setBackground(new RippleDrawable(ColorStateList.valueOf(0x223D7EFF), bg, null));
-        t.setPadding(dp(8), dp(16), dp(8), dp(14));
-        t.setOnClickListener(l);
-        t.addView(icon(iconKind, ACCENT, 26), new LinearLayout.LayoutParams(dp(26), dp(26)));
-        TextView lab = new TextView(this);
-        lab.setText(label);
-        lab.setTextSize(12);
-        lab.setTextColor(TEXT);
-        lab.setTypeface(Typeface.DEFAULT_BOLD);
-        lab.setGravity(Gravity.CENTER);
-        LinearLayout.LayoutParams llp = new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
-        llp.topMargin = dp(8);
-        t.addView(lab, llp);
-        return t;
-    }
-
-    private View linkCard(int iconKind, String title, String sub, int tab) {
-        LinearLayout p = card();
-        p.setOrientation(LinearLayout.HORIZONTAL);
-        p.setGravity(Gravity.CENTER_VERTICAL);
-        LinearLayout.LayoutParams ilp = new LinearLayout.LayoutParams(dp(30), dp(30));
-        ilp.rightMargin = dp(14);
-        p.addView(icon(iconKind, ACCENT, 30), ilp);
-        LinearLayout t = new LinearLayout(this);
-        t.setOrientation(LinearLayout.VERTICAL);
-        TextView t1 = new TextView(this);
-        t1.setText(title);
-        t1.setTextSize(15);
-        t1.setTextColor(TEXT);
-        t1.setTypeface(Typeface.DEFAULT_BOLD);
-        t.addView(t1);
-        TextView t2 = new TextView(this);
-        t2.setText(sub);
-        t2.setTextSize(11);
-        t2.setTextColor(MUTED);
-        t.addView(t2);
-        p.addView(t, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
-        p.addView(icon(Icon.CHEVRON, MUTED, 20), new LinearLayout.LayoutParams(dp(20), dp(20)));
-        p.setOnClickListener(v -> selectTab(tab));
-        return p;
-    }
-
-    private View statTile(String label, TextView value) {
-        LinearLayout t = new LinearLayout(this);
-        t.setOrientation(LinearLayout.VERTICAL);
-        GradientDrawable bg = new GradientDrawable();
-        bg.setColor(CARD2);
-        bg.setCornerRadius(dp(16));
-        bg.setStroke(dp(1), STROKE);
-        t.setBackground(bg);
-        t.setPadding(dp(14), dp(12), dp(14), dp(12));
-        TextView lab = new TextView(this);
-        lab.setText(label);
-        lab.setTextSize(11);
-        lab.setTextColor(MUTED);
-        t.addView(lab);
-        LinearLayout.LayoutParams vlp = new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
-        vlp.topMargin = dp(3);
-        t.addView(value, vlp);
-        return t;
-    }
-
-    private View infoRow(String label, String value) {
-        LinearLayout r = new LinearLayout(this);
-        r.setOrientation(LinearLayout.HORIZONTAL);
-        r.setPadding(0, dp(5), 0, dp(5));
-        TextView l = new TextView(this);
-        l.setText(label);
-        l.setTextSize(13);
-        l.setTextColor(MUTED);
-        r.addView(l, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
-        TextView v = new TextView(this);
-        v.setText(value);
-        v.setTextSize(13);
-        v.setTextColor(TEXT);
-        v.setTypeface(Typeface.DEFAULT_BOLD);
-        v.setGravity(Gravity.END);
-        r.addView(v, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1.4f));
-        return r;
-    }
-
-    private TextView sectionTitle(String text) {
-        TextView t = new TextView(this);
-        t.setText(text);
-        t.setTextSize(13);
-        t.setTextColor(TEXT);
-        t.setTypeface(Typeface.DEFAULT_BOLD);
-        t.setPadding(0, dp(2), 0, dp(10));
-        return t;
-    }
-
-    private TextView statValue(String v) {
-        TextView t = new TextView(this);
-        t.setText(v);
-        t.setTextSize(17);
-        t.setTextColor(TEXT);
-        t.setTypeface(Typeface.DEFAULT_BOLD);
-        return t;
-    }
-
-    private TextView chip(String text, int bg, int fg) {
-        TextView t = new TextView(this);
-        t.setText(text);
-        t.setTextSize(11);
-        t.setTextColor(fg);
-        t.setTypeface(Typeface.DEFAULT_BOLD);
-        GradientDrawable g = new GradientDrawable();
-        g.setColor(bg);
-        g.setCornerRadius(dp(20));
-        t.setBackground(g);
-        t.setPadding(dp(12), dp(5), dp(12), dp(5));
-        return t;
-    }
-
-    private Button btnBase(String text, int bg, int fg, View.OnClickListener l) {
-        Button b = new Button(this);
-        b.setText(text);
-        b.setAllCaps(false);
-        b.setTextSize(13);
-        b.setTextColor(fg);
-        b.setTypeface(Typeface.DEFAULT_BOLD);
-        GradientDrawable g = new GradientDrawable();
-        g.setColor(bg);
-        g.setCornerRadius(dp(14));
-        b.setBackground(new RippleDrawable(ColorStateList.valueOf(0x33FFFFFF), g, null));
-        b.setPadding(dp(12), dp(12), dp(12), dp(12));
-        b.setOnClickListener(l);
-        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
-        lp.topMargin = dp(7);
-        b.setLayoutParams(lp);
-        return b;
-    }
-
-    private Button primaryBtn(String text, View.OnClickListener l) {
-        return btnBase(text, ACCENT, 0xFFFFFFFF, l);
-    }
-
-    private Button ghostBtn(String text, View.OnClickListener l) {
-        return btnBase(text, GHOST, TEXT, l);
-    }
-
-    private Button dangerBtn(String text, View.OnClickListener l) {
-        return btnBase(text, 0x33F0616D, WARN, l);
-    }
-
-    private View row(View... views) {
-        LinearLayout r = new LinearLayout(this);
-        r.setOrientation(LinearLayout.HORIZONTAL);
-        for (int i = 0; i < views.length; i++) {
-            LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(0,
-                    ViewGroup.LayoutParams.WRAP_CONTENT, 1f);
-            lp.topMargin = dp(7);
-            if (i < views.length - 1) lp.rightMargin = dp(8);
-            r.addView(views[i], lp);
-        }
-        return r;
-    }
-
-    private Switch makeSwitch(boolean checked) {
-        Switch s = new Switch(this);
-        s.setChecked(checked);
-        s.setThumbTintList(ColorStateList.valueOf(0xFFFFFFFF));
-        s.setTrackTintList(ColorStateList.valueOf(ACCENT));
-        return s;
-    }
-
-    private View toggleRow(String label, Switch sw) {
-        LinearLayout r = new LinearLayout(this);
-        r.setOrientation(LinearLayout.HORIZONTAL);
-        r.setGravity(Gravity.CENTER_VERTICAL);
-        TextView t = new TextView(this);
-        t.setText(label);
-        t.setTextSize(14);
-        t.setTextColor(TEXT);
-        r.addView(t, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
-        r.addView(sw);
-        r.setPadding(0, dp(5), 0, dp(5));
-        return r;
-    }
-
-    private EditText field(String text) {
-        EditText e = new EditText(this);
-        e.setText(text);
-        e.setTextSize(13);
-        e.setSingleLine(true);
-        e.setTextColor(TEXT);
-        e.setHintTextColor(MUTED);
-        GradientDrawable bg = new GradientDrawable();
-        bg.setColor(FIELD);
-        bg.setCornerRadius(dp(12));
-        bg.setStroke(dp(1), STROKE);
-        e.setBackground(bg);
-        e.setPadding(dp(13), dp(10), dp(13), dp(10));
-        return e;
-    }
-
-    private View labeled(String label, View field) {
-        LinearLayout l = new LinearLayout(this);
-        l.setOrientation(LinearLayout.VERTICAL);
-        TextView t = new TextView(this);
-        t.setText(label);
-        t.setTextSize(11);
-        t.setTextColor(MUTED);
-        t.setPadding(0, dp(7), 0, dp(4));
-        l.addView(t);
-        l.addView(field);
-        return l;
-    }
-
-    private byte[] asset(String name) throws Exception {
-        try (java.io.InputStream in = getAssets().open(name)) {
-            java.io.ByteArrayOutputStream o = new java.io.ByteArrayOutputStream();
-            byte[] b = new byte[8192];
-            int r;
-            while ((r = in.read(b)) > 0) o.write(b, 0, r);
-            return o.toByteArray();
-        }
-    }
-
-    private void requestPermissions() {
-        java.util.List<String> want = new java.util.ArrayList<>();
-        if (Build.VERSION.SDK_INT >= 31) {
-            if (checkSelfPermission(Manifest.permission.BLUETOOTH_CONNECT) != PackageManager.PERMISSION_GRANTED)
-                want.add(Manifest.permission.BLUETOOTH_CONNECT);
-            if (checkSelfPermission(Manifest.permission.BLUETOOTH_SCAN) != PackageManager.PERMISSION_GRANTED)
-                want.add(Manifest.permission.BLUETOOTH_SCAN);
-        }
-        if (Build.VERSION.SDK_INT >= 33
-                && checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED)
-            want.add(Manifest.permission.POST_NOTIFICATIONS);
-        if (!Finder.hasPermission(this)) {
-            want.add(Manifest.permission.ACCESS_FINE_LOCATION);
-            want.add(Manifest.permission.ACCESS_COARSE_LOCATION);
-        }
-        if (!want.isEmpty()) requestPermissions(want.toArray(new String[0]), 1);
+    @Override
+    public void onHealthUpdated() {
+        runOnUiThread(() -> {
+            refreshHealth();
+            refreshStatus();
+        });
     }
 
     @Override
-    protected void onActivityResult(int req, int res, Intent data) {
-        super.onActivityResult(req, res, data);
-        if (res != RESULT_OK || data == null || data.getData() == null) return;
-        if (req != REQ_VXP) return;
-        android.net.Uri uri = data.getData();
-        String name = "app.vxp";
-        try (android.database.Cursor c = getContentResolver().query(uri, null, null, null, null)) {
-            if (c != null && c.moveToFirst()) {
-                int i = c.getColumnIndex(android.provider.OpenableColumns.DISPLAY_NAME);
-                if (i >= 0 && c.getString(i) != null) name = c.getString(i);
-            }
-        } catch (Exception ignored) {
-        }
-        name = name.substring(name.lastIndexOf('/') + 1);
-        try (java.io.InputStream in = getContentResolver().openInputStream(uri)) {
-            java.io.ByteArrayOutputStream o = new java.io.ByteArrayOutputStream();
-            byte[] b = new byte[8192];
-            int r;
-            while ((r = in.read(b)) > 0) o.write(b, 0, r);
-            byte[] vxp = o.toByteArray();
-            log("VXP " + name + " (" + vxp.length + " bytes)");
-            if (vxpName != null) vxpName.setText(name);
-            W26.get().mreeInstall(name, vxp);
-        } catch (Exception e) {
-            log("VXP erro: " + e.getMessage());
-        }
+    public void onMeasure(String type, double value) {
+        runOnUiThread(() -> Toast.makeText(this,
+                type.toUpperCase(java.util.Locale.ROOT) + ": " + value, Toast.LENGTH_SHORT).show());
     }
 
     @Override
-    public void onLog(String line) {
-        log(line);
+    public void onAppsUpdated() {
+        runOnUiThread(this::refreshApps);
     }
 
     @Override
@@ -1191,18 +1146,80 @@ public class MainActivity extends Activity implements W26.Listener {
             if (Prefs.autoSync(this)) {
                 W26.get().syncTime();
                 Prefs.markSync(this);
-                log("sync automático: hora enviada");
                 Weather.fetchAndPush(this);
             }
+            ui.postDelayed(() -> {
+                refreshDevice();
+                if (W26.get().isSppUp()) Apps.get().refresh();
+            }, 2500);
         }
         refreshStatus();
     }
 
+    @Override
+    public void onLog(String line) {
+        log(line);
+    }
+
     private void log(String line) {
-        CharSequence old = logView.getText();
-        String all = old.toString() + java.time.LocalTime.now().withNano(0) + "  " + line + "\n";
-        if (all.length() > 24000) all = all.substring(all.length() - 20000);
-        logView.setText(all);
-        logScroll.post(() -> logScroll.fullScroll(View.FOCUS_DOWN));
+        String stamped = java.time.LocalTime.now().withNano(0) + "  " + line + "\n";
+        liveLog.append(stamped);
+        if (liveLog.length() > 24000) liveLog.delete(0, liveLog.length() - 20000);
+        if (logView != null && logLive && currentTab == TAB_CONSOLE) {
+            logView.append(stamped);
+            logScroll.post(() -> logScroll.fullScroll(View.FOCUS_DOWN));
+        }
+    }
+
+    private void requestPermissions() {
+        java.util.List<String> want = new java.util.ArrayList<>();
+        if (Build.VERSION.SDK_INT >= 31) {
+            if (checkSelfPermission(Manifest.permission.BLUETOOTH_CONNECT) != PackageManager.PERMISSION_GRANTED)
+                want.add(Manifest.permission.BLUETOOTH_CONNECT);
+            if (checkSelfPermission(Manifest.permission.BLUETOOTH_SCAN) != PackageManager.PERMISSION_GRANTED)
+                want.add(Manifest.permission.BLUETOOTH_SCAN);
+        }
+        if (Build.VERSION.SDK_INT >= 33
+                && checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED)
+            want.add(Manifest.permission.POST_NOTIFICATIONS);
+        if (!Finder.hasPermission(this)) {
+            want.add(Manifest.permission.ACCESS_FINE_LOCATION);
+            want.add(Manifest.permission.ACCESS_COARSE_LOCATION);
+        }
+        if (!want.isEmpty()) requestPermissions(want.toArray(new String[0]), 1);
+    }
+
+    @Override
+    public void onRequestPermissionsResult(int req, String[] perms, int[] results) {
+        super.onRequestPermissionsResult(req, perms, results);
+        LinkSvc.start(this);
+    }
+
+    @Override
+    protected void onActivityResult(int req, int res, Intent data) {
+        super.onActivityResult(req, res, data);
+        if (res != RESULT_OK || data == null || data.getData() == null || req != REQ_VXP) return;
+        android.net.Uri uri = data.getData();
+        String name = "app.vxp";
+        try (android.database.Cursor c = getContentResolver().query(uri, null, null, null, null)) {
+            if (c != null && c.moveToFirst()) {
+                int i = c.getColumnIndex(android.provider.OpenableColumns.DISPLAY_NAME);
+                if (i >= 0 && c.getString(i) != null) name = c.getString(i);
+            }
+        } catch (Exception ignored) {
+        }
+        name = name.substring(name.lastIndexOf('/') + 1);
+        try (java.io.InputStream in = getContentResolver().openInputStream(uri)) {
+            java.io.ByteArrayOutputStream o = new java.io.ByteArrayOutputStream();
+            byte[] b = new byte[8192];
+            int r;
+            while ((r = in.read(b)) > 0) o.write(b, 0, r);
+            byte[] vxp = o.toByteArray();
+            log("VXP " + name + " (" + vxp.length + " bytes)");
+            if (vxpName != null) vxpName.setText(name);
+            W26.get().mreeInstall(name, vxp);
+        } catch (Exception e) {
+            log("VXP erro: " + e.getMessage());
+        }
     }
 }
